@@ -1,0 +1,80 @@
+# Create a file named `.env.local` in the project root and paste this in.
+# (This template file is safe to commit; `.env.local` should never be committed.)
+
+# --- Supabase (required for login/auth) ---
+# Supabase Dashboard -> Settings -> API
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_ANON_PUBLIC_KEY
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
+
+# --- App URL (recommended) ---
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# --- Unity Brain (external secured intelligence service) ---
+# Server-to-server only. Do NOT expose these to the browser.
+# Central Office (Unity Brain) URL for the Unity Credit window:
+UNITY_BRAIN_OFFICE_URL=http://127.0.0.1:8090
+# Unity Credit app identity + key (paste the APP-KEY generated in Brain Admin UI here).
+# Unity Credit will send: x-app-id=UNITY_CREDIT_APP_ID and App-Key=UNITY_CREDIT_APP_KEY
+# Unity Brain validates it against UNITY_BRAIN_APP_KEYS_JSON on the Brain service.
+UNITY_CREDIT_APP_ID=unity-credit-window
+UNITY_CREDIT_APP_KEY=PASTE_BRAIN_APP_KEY_HERE
+
+# Production Brain URL (preferred):
+BRAIN_API_URL=https://your-brain.vercel.app
+# Backward-compatible (local/dev):
+UNITY_BRAIN_URL=http://localhost:4020
+# Production token (preferred):
+MASTER_BRAIN_KEY=replace-with-long-secret
+# Backward-compatible (optional):
+UNITY_BRAIN_KEY=replace-with-long-secret
+# Preferred name for the server-to-server handshake (kept server-side only).
+UNITY_BRAIN_LICENSE_KEY=replace-with-long-secret
+# App identity header sent to Unity Brain (server-to-server).
+UNITY_APP_ID=UnityCredit-01
+# Optional override for the domain identity sent to Unity Brain (otherwise derives from Host header)
+UNITY_APP_DOMAIN=localhost:3000
+
+# --- Enterprise: encrypted audit trail + caching (recommended) ---
+AUDIT_LOG_ENC_KEY=CHANGE_ME_TO_A_RANDOM_SECRET
+UNITY_VAULT_ENC_KEY=CHANGE_ME_TO_A_32_BYTE_RANDOM_KEY_BASE64_OR_HEX
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+
+# --- Optimization Engine (24/7 worker) ---
+OPTIMIZATION_ENGINE_SECRET=CHANGE_ME_TO_A_RANDOM_SECRET
+OPTIMIZATION_INTERVAL_MS=300000
+
+# --- Shopping Scout (24/7 worker) ---
+SHOPPING_SCOUT_SECRET=CHANGE_ME_TO_A_RANDOM_SECRET
+SHOPPING_SCOUT_INTERVAL_MS=120000
+SHOPPING_SCOUT_KEYWORDS="walmart amazon deals"
+
+# --- Plaid (Bank connections) ---
+# Plaid Dashboard -> Team Settings -> Keys
+PLAID_CLIENT_ID=
+PLAID_SECRET=
+# sandbox | development | production
+PLAID_ENV=sandbox
+
+# --- Email (Resend) ---
+RESEND_API_KEY=
+RESEND_FROM="Unity Credit <no-reply@yourdomain.com>"
+EMAIL_WORKER_CONCURRENCY=10
+
+# --- Stripe Billing (Premium Trial → Subscription) ---
+# If omitted, the app falls back to demo billing (good for investor demo environments).
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_SECRET_KEY=sk_test_...
+# Webhook secret for /api/stripe/webhook (recommended for production)
+STRIPE_WEBHOOK_SECRET=whsec_...
+# Stripe Price ID for your Premium subscription price (recurring monthly)
+STRIPE_PREMIUM_PRICE_ID=price_...
+# Optional: return URL for the Stripe Customer Portal (defaults to /settings)
+STRIPE_BILLING_PORTAL_RETURN_URL=http://localhost:3000/settings
+# Optional display/override values (cents)
+NEXT_PUBLIC_PREMIUM_PRICE_CENTS=4900
+PREMIUM_PRICE_CENTS=4900
+PREMIUM_CURRENCY=usd
+
+
