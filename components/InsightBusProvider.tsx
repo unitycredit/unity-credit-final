@@ -157,7 +157,8 @@ export function InsightBusProvider({ children }: { children: React.ReactNode }) 
     const id = makeId('insight')
     const created_at = safeTrim((payload as any)?.created_at || (msg as any)?.created_at) || nowIso()
 
-    setInsights((prev) => [{ id, merchant, amount, advice, yiddish_advice, created_at, source: 'brain', raw: payload }, ...prev].slice(0, MAX_ITEMS))
+    const next: Insight = { id, merchant, amount, advice, yiddish_advice, created_at, source: 'brain', raw: payload }
+    setInsights((prev) => [next, ...prev].slice(0, MAX_ITEMS))
   }, [])
 
   const clear = useCallback(() => {

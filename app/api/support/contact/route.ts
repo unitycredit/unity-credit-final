@@ -64,18 +64,16 @@ export async function POST(req: NextRequest) {
   try {
     const admin = createAdminClient()
     if (admin) {
-      await admin
-        .from('support_messages')
-        .insert({
-          user_id: user.id,
-          email: user.email || null,
-          subject,
-          message,
-          forwarded_ok,
-          forwarded_status,
-          forwarded_error,
-        } as any)
-        .catch(() => null)
+      const { error } = await admin.from('support_messages').insert({
+        user_id: user.id,
+        email: user.email || null,
+        subject,
+        message,
+        forwarded_ok,
+        forwarded_status,
+        forwarded_error,
+      } as any)
+      if (error) console.error('Supabase error:', error)
     }
   } catch {
     // ignore
