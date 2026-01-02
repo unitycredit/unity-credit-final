@@ -307,3 +307,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Bank refresh failed. Please retry.' }, { status: 500 })
   }
 }
+
+// Vercel sync marker (main): 2026-01-02T00:00:00Z
