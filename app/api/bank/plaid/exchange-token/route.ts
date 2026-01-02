@@ -240,7 +240,8 @@ export async function POST(request: NextRequest) {
               iso_currency_code: a?.balances?.iso_currency_code ? String(a.balances.iso_currency_code).toLowerCase() : 'usd',
               updated_at: new Date().toISOString(),
             }))
-          await admin.from('plaid_accounts').upsert(accountRows as any, { onConflict: 'user_id,plaid_account_id' }).catch(() => null)
+          const { error } = await admin.from('plaid_accounts').upsert(accountRows as any, { onConflict: 'user_id,plaid_account_id' })
+          if (error) console.error('Supabase error:', error)
         }
       } catch {
         // ignore account persistence failures
