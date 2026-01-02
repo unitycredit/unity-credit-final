@@ -102,13 +102,17 @@ export async function POST(req: NextRequest) {
   }
 
   // Mark sync attempt (best-effort).
-  await setBankSyncState({
-    user_id: user.id,
-    status: 'active',
-    last_sync_at: new Date().toISOString(),
-    last_error_code: null,
-    last_error_message: null,
-  }).catch(() => null)
+  try {
+    await setBankSyncState({
+      user_id: user.id,
+      status: 'active',
+      last_sync_at: new Date().toISOString(),
+      last_error_code: null,
+      last_error_message: null,
+    })
+  } catch (e: any) {
+    console.error('Bank sync state update failed:', e?.message || e)
+  }
 
   try {
     const end = new Date()
@@ -202,13 +206,17 @@ export async function POST(req: NextRequest) {
     if (rows.length) {
       const { error } = await admin.from('plaid_transactions').upsert(rows as any, { onConflict: 'user_id,plaid_transaction_id' })
       if (error) {
-        await setBankSyncState({
-          user_id: user.id,
-          status: 'error',
-          last_sync_at: new Date().toISOString(),
-          last_error_code: 'db_upsert_failed',
-          last_error_message: error.message,
-        }).catch(() => null)
+        try {
+          await setBankSyncState({
+            user_id: user.id,
+            status: 'error',
+            last_sync_at: new Date().toISOString(),
+            last_error_code: 'db_upsert_failed',
+            last_error_message: error.message,
+          })
+        } catch (e: any) {
+          console.error('Bank sync state update failed:', e?.message || e)
+        }
         return NextResponse.json({ ok: false, error: `Failed saving transactions: ${error.message}` }, { status: 502 })
       }
     }
@@ -234,14 +242,18 @@ export async function POST(req: NextRequest) {
       })
 
     const nowIso = new Date().toISOString()
-    await setBankSyncState({
-      user_id: user.id,
-      status: 'active',
-      last_sync_at: nowIso,
-      last_success_at: nowIso,
-      last_error_code: null,
-      last_error_message: null,
-    }).catch(() => null)
+    try {
+      await setBankSyncState({
+        user_id: user.id,
+        status: 'active',
+        last_sync_at: nowIso,
+        last_success_at: nowIso,
+        last_error_code: null,
+        last_error_message: null,
+      })
+    } catch (e: any) {
+      console.error('Bank sync state update failed:', e?.message || e)
+    }
 
     // Best-effort: recompute savings so dashboard updates immediately.
     try {
@@ -255,7 +267,7 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({ disclaimer_yi: '', question: '' }),
         cache: 'no-store',
         signal: ctrl.signal,
-      }).catch(() => null)
+      })
       clearTimeout(id)
     } catch {
       // ignore
@@ -267,22 +279,30 @@ export async function POST(req: NextRequest) {
     const code = String(e?.response?.data?.error_code || e?.data?.error_code || e?.error_code || '').toUpperCase()
     const message = String(e?.response?.data?.error_message || e?.message || 'Bank sync failed')
     if (code === 'ITEM_LOGIN_REQUIRED' || code === 'INVALID_ACCESS_TOKEN' || code === 'ITEM_NOT_FOUND') {
-      await setBankSyncState({
-        user_id: user.id,
-        status: 'reconnect_required',
-        last_sync_at: new Date().toISOString(),
-        last_error_code: code,
-        last_error_message: message,
-      }).catch(() => null)
+      try {
+        await setBankSyncState({
+          user_id: user.id,
+          status: 'reconnect_required',
+          last_sync_at: new Date().toISOString(),
+          last_error_code: code,
+          last_error_message: message,
+        })
+      } catch (e2: any) {
+        console.error('Bank sync state update failed:', e2?.message || e2)
+      }
       return NextResponse.json({ ok: false, error: 'Re-connect Required', reconnect_required: true, code }, { status: 403 })
     }
-    await setBankSyncState({
-      user_id: user.id,
-      status: 'error',
-      last_sync_at: new Date().toISOString(),
-      last_error_code: code || 'plaid_error',
-      last_error_message: message,
-    }).catch(() => null)
+    try {
+      await setBankSyncState({
+        user_id: user.id,
+        status: 'error',
+        last_sync_at: new Date().toISOString(),
+        last_error_code: code || 'plaid_error',
+        last_error_message: message,
+      })
+    } catch (e2: any) {
+      console.error('Bank sync state update failed:', e2?.message || e2)
+    }
     return NextResponse.json({ ok: false, error: 'Bank refresh failed. Please retry.' }, { status: 500 })
   }
 }
