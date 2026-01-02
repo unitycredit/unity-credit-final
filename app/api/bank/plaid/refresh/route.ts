@@ -177,8 +177,9 @@ export async function POST(req: NextRequest) {
             iso_currency_code: a?.balances?.iso_currency_code ? String(a.balances.iso_currency_code).toLowerCase() : 'usd',
             updated_at: nowIso,
           }))
-        const { error } = await admin.from('plaid_accounts').upsert(rows as any, { onConflict: 'user_id,plaid_account_id' })
+        const { data, error } = await admin.from('plaid_accounts').upsert(rows as any, { onConflict: 'user_id,plaid_account_id' })
         if (error) console.error('Supabase error:', error)
+        void data
       }
     } catch {
       // ignore
