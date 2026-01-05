@@ -1,4 +1,4 @@
-// Client-safe flags for keeping the UI usable even when backend services (Unity Brain on 8090, Supabase, etc.) are offline.
+// Client-safe flags for keeping the UI usable even when backend services (Unity Brain, Supabase, etc.) are offline.
 //
 // Defaults:
 // - Autonomous UI is ON unless explicitly disabled.

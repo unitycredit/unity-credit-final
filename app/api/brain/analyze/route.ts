@@ -128,7 +128,7 @@ export async function GET(req: NextRequest) {
       req: req as any,
     })
   } catch (e: any) {
-    // Port 8090 unreachable / Brain offline.
+    // Brain unreachable / offline.
     return NextResponse.json(
       { ok: false, error: 'Re-connecting to Unity Intelligence...', error_code: 'unreachable' },
       { status: 503, headers: { ...rl.headers, 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' } }

@@ -334,7 +334,7 @@ export default function DashboardPage() {
     })
   }, [heimisheBudget, heimisheBudgetItems])
 
-  // Brain reachability probe (8090). If Brain is offline/slow, we fall back to local mock data.
+  // Brain reachability probe. If Brain is offline/slow, we fall back to local mock data.
   useEffect(() => {
     if (allowGuest) return
     let cancelled = false
@@ -694,7 +694,7 @@ export default function DashboardPage() {
   const [creditScoreEstimate, setCreditScoreEstimate] = useState<number | null>(null)
 
   useEffect(() => {
-    // Always compute a local credit summary so the dashboard renders even when Brain (8090) is offline.
+    // Always compute a local credit summary so the dashboard renders even when Brain is offline.
     const totalLimitLocal = cards.reduce((sum, c) => sum + (Number(c.limit) || 0), 0)
     const totalBalanceLocal = cards.reduce((sum, c) => sum + (Number(c.balance) || 0), 0)
     const totalAvailableLocal = Math.max(0, totalLimitLocal - totalBalanceLocal)
