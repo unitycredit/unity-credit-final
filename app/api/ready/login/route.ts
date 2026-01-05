@@ -7,6 +7,7 @@ import { unityBrainBaseUrl } from '@/lib/brain-handshake'
 export const runtime = 'nodejs'
 
 export async function GET(req: NextRequest) {
+  // deploy sync: trigger vercel rebuild
   const rl = await enforceRateLimit(req, 'API_REQUESTS')
   if (!rl.allowed) return NextResponse.json({ ok: false, error: 'Too many requests' }, { status: 429, headers: rl.headers })
 
