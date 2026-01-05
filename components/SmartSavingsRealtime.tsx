@@ -46,7 +46,7 @@ export default function SmartSavingsRealtime() {
   const wsCandidates = useMemo(() => {
     if (typeof window === 'undefined') return []
     // Fixed path requirement: ONLY connect to this endpoint (no fallbacks).
-    return ['ws://localhost:8090/ws']
+    return [process.env.NEXT_PUBLIC_UNITY_BRAIN_WS_URL || 'ws://unitybrein-env.eba-3bzvyngj.us-east-2.elasticbeanstalk.com/ws']
   }, [])
 
   // Unity Credit owns display logic; we forward raw Brain messages into the Insight Bus.
@@ -138,8 +138,8 @@ export default function SmartSavingsRealtime() {
     let cancelled = false
     async function tick() {
       try {
-        // Direct unauthenticated probe (NO auth headers) until verified.
-        const res = await fetch('http://localhost:8090/api/brain/health', { cache: 'no-store' })
+        // Probe via our own Next.js API route (avoids CORS + keeps backend URL server-side).
+        const res = await fetch('/api/brain/health', { cache: 'no-store' })
         const json = await res.json().catch(() => ({}))
         const ok = Boolean((json as any)?.ok)
         if (cancelled) return

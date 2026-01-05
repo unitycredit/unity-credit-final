@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { enforceRateLimit } from '@/lib/server-rate-limit'
 import { createClient } from '@/lib/supabase'
 import { buildLast30DaysTransactionBundle } from '@/lib/finance/brain-transaction-bundle'
-import { callUnityBrainOffice } from '@/lib/unity-brain-office'
+import { callUnityBrainOffice, unityBrainOfficeUrl } from '@/lib/unity-brain-office'
 
 export const runtime = 'nodejs'
 
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
     {
       ok: forwarded.ok,
       status: forwarded.status,
-      sent_to: 'http://127.0.0.1:8090/v1/analyze',
+      sent_to: new URL('/v1/analyze', unityBrainOfficeUrl()).toString(),
       request_preview: { tx_count: txBundle?.totals?.tx_count ?? txBundle?.transactions?.length ?? 0 },
       brain: forwarded.json || null,
     },

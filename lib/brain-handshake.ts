@@ -15,10 +15,10 @@ export function unityCreditAppKey() {
 }
 
 export function unityBrainBaseUrl() {
-  // Emergency dev fix: hard-force Brain port 8090 locally to avoid env drift.
-  const forcedDev = process.env.NODE_ENV !== 'production' ? 'http://127.0.0.1:8090' : ''
-  const url = safeTrim(process.env.UNITY_BRAIN_OFFICE_URL || forcedDev)
-  return forcedDev || url
+  // Default to the production Brain URL, but allow overrides via env.
+  const defaultUrl = 'http://unitybrein-env.eba-3bzvyngj.us-east-2.elasticbeanstalk.com'
+  const url = safeTrim(process.env.UNITY_BRAIN_OFFICE_URL || process.env.UNITY_BRAIN_URL || process.env.BRAIN_API_URL || defaultUrl)
+  return url
 }
 
 export function generateSecurityKey(params: { appId: string; appKey: string }) {

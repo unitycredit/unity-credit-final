@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   // Health probe (reachability only; does not require app key).
   let brainReachable = false
   try {
-    const u = new URL('/health', brainBase)
+    const u = new URL('/healthz', brainBase)
     const ctrl = new AbortController()
     const id = setTimeout(() => ctrl.abort(), 1500)
     const r = await fetch(u, { method: 'GET', cache: 'no-store', signal: ctrl.signal }).finally(() => clearTimeout(id))
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     if (!g.__UC_BRAIN_SYNC_LOGGED__) {
       g.__UC_BRAIN_SYNC_LOGGED__ = true
       // eslint-disable-next-line no-console
-      console.log('🚀 UNITY CREDIT FRONTEND IS FULLY SYNCED WITH BRAIN ON PORT 8090')
+      console.log(`🚀 UNITY CREDIT FRONTEND IS READY (Brain reachable=${brainReachable})`)
     }
   }
 

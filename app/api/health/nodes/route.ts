@@ -15,8 +15,8 @@ export async function GET() {
     try {
       const ctrl = new AbortController()
       const t = setTimeout(() => ctrl.abort(), 1500)
-      // Many deployments expose /health or /v1/health; try both quickly.
-      const urls = [new URL('/health', cfg.baseUrl), new URL('/v1/health', cfg.baseUrl)]
+      // Different Brain deployments expose different health endpoints; try a few quickly.
+      const urls = [new URL('/healthz', cfg.baseUrl), new URL('/health', cfg.baseUrl), new URL('/v1/health', cfg.baseUrl)]
       let ok = false
       for (const u of urls) {
         const r = await fetch(u, { method: 'GET', cache: 'no-store', signal: ctrl.signal }).catch(() => null)

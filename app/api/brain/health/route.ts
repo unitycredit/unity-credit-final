@@ -20,7 +20,7 @@ export async function OPTIONS() {
 
 export async function GET() {
   const base = unityBrainOfficeUrl()
-  const url = new URL('/health', base)
+  const url = new URL('/healthz', base)
   const appId = String(process.env.UNITY_CREDIT_APP_ID || process.env.UNITY_APP_ID || 'unity-credit-window').trim()
   const appKey = String(process.env.UNITY_CREDIT_APP_KEY || '').trim()
 

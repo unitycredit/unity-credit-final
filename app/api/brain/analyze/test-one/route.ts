@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { enforceRateLimit } from '@/lib/server-rate-limit'
-import { callUnityBrainOffice } from '@/lib/unity-brain-office'
+import { callUnityBrainOffice, unityBrainOfficeUrl } from '@/lib/unity-brain-office'
 import { sanitizeUnityLogicPublicText } from '@/lib/sanitize'
 
 export const runtime = 'nodejs'
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
           ok: false,
           error:
             'Unity Brain rejected the request (401). Set UNITY_CREDIT_APP_KEY in .env.local (must match the Brain service allowlist) and retry.',
-          sent_to: 'http://127.0.0.1:8090/v1/analyze',
+          sent_to: new URL('/v1/analyze', unityBrainOfficeUrl()).toString(),
         },
         { status: 401, headers: { ...rl.headers, 'Cache-Control': 'no-store' } }
       )

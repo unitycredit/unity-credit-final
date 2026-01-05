@@ -16,7 +16,8 @@ type ChatMsg = {
   raw?: any
 }
 
-const WS_URL = 'ws://localhost:8090/ws/strategy'
+const WS_URL =
+  process.env.NEXT_PUBLIC_UNITY_BRAIN_STRATEGY_WS_URL || 'ws://unitybrein-env.eba-3bzvyngj.us-east-2.elasticbeanstalk.com/ws/strategy'
 const STORAGE_MESSAGES = 'uc_admin_strategy_chat_v1'
 const STORAGE_STATE = 'uc_admin_strategy_state_v1'
 const STORAGE_SCROLL = 'uc_admin_strategy_scroll_v1'

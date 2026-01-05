@@ -60,14 +60,14 @@ async function main() {
     version: 1,
     generated_at: new Date().toISOString(),
     source_workspace: ROOT,
-    proxy_target_ready_url: 'http://127.0.0.1:8090',
+    proxy_target_ready_url: 'http://unitybrein-env.eba-3bzvyngj.us-east-2.elasticbeanstalk.com',
     handshake: {
       required_headers: {
         'x-app-id': '<your-app-id>',
         'App-Key': '<shared-secret>',
       },
       unity_credit_env: {
-        UNITY_BRAIN_OFFICE_URL: 'http://127.0.0.1:8090',
+        UNITY_BRAIN_OFFICE_URL: 'http://unitybrein-env.eba-3bzvyngj.us-east-2.elasticbeanstalk.com',
         UNITY_CREDIT_APP_ID: 'unity-credit',
         UNITY_CREDIT_APP_KEY: 'change-me',
       },
