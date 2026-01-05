@@ -13,7 +13,10 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 # --- Unity Brain (external secured intelligence service) ---
 # Server-to-server only. Do NOT expose these to the browser.
 # Central Office (Unity Brain) URL for the Unity Credit window:
-UNITY_BRAIN_OFFICE_URL=http://127.0.0.1:8090
+UNITY_BRAIN_OFFICE_URL=http://unitybrein-env.eba-3bzvyngj.us-east-2.elasticbeanstalk.com
+# Client-side (WebSocket) connection to Unity Brain (used for realtime insights).
+# If you serve the app over HTTPS, use wss:// here.
+NEXT_PUBLIC_UNITY_BRAIN_WS_URL=ws://unitybrein-env.eba-3bzvyngj.us-east-2.elasticbeanstalk.com/ws
 # Unity Credit app identity + key (paste the APP-KEY generated in Brain Admin UI here).
 # Unity Credit will send: x-app-id=UNITY_CREDIT_APP_ID and App-Key=UNITY_CREDIT_APP_KEY
 # Unity Brain validates it against UNITY_BRAIN_APP_KEYS_JSON on the Brain service.
@@ -21,9 +24,11 @@ UNITY_CREDIT_APP_ID=unity-credit-window
 UNITY_CREDIT_APP_KEY=PASTE_BRAIN_APP_KEY_HERE
 
 # Production Brain URL (preferred):
-BRAIN_API_URL=https://your-brain.vercel.app
-# Backward-compatible (local/dev):
-UNITY_BRAIN_URL=http://localhost:4020
+BRAIN_API_URL=http://unitybrein-env.eba-3bzvyngj.us-east-2.elasticbeanstalk.com
+# Backward-compatible (optional):
+UNITY_BRAIN_URL=http://unitybrein-env.eba-3bzvyngj.us-east-2.elasticbeanstalk.com
+# Local dev (current repo unity-brain):
+# UNITY_BRAIN_URL=http://localhost:4020
 # Production token (preferred):
 MASTER_BRAIN_KEY=replace-with-long-secret
 # Backward-compatible (optional):

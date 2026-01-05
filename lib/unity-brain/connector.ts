@@ -62,7 +62,17 @@ export async function postToUnityBrain(params: {
   try {
     const u = new URL(cfg.baseUrl)
     if (process.env.NODE_ENV === 'production' && u.protocol !== 'https:') {
-      return { ok: false as const, status: 503, error: 'UNITY_BRAIN_URL must use https in production.' }
+      const allowInsecure =
+        String(process.env.UNITY_BRAIN_ALLOW_INSECURE_HTTP || '').toLowerCase() === 'true' ||
+        // Allow the known Elastic Beanstalk domain for now (can be upgraded to HTTPS later).
+        u.hostname.endsWith('elasticbeanstalk.com')
+      if (!allowInsecure) {
+        return {
+          ok: false as const,
+          status: 503,
+          error: 'BRAIN_API_URL/UNITY_BRAIN_URL must use https in production (or set UNITY_BRAIN_ALLOW_INSECURE_HTTP=true).',
+        }
+      }
     }
   } catch {
     return { ok: false as const, status: 503, error: 'UNITY_BRAIN_URL is invalid.' }
