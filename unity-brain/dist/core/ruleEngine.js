@@ -67,6 +67,20 @@ export function computeBudgetMonthlyTotalFromItems(items) {
     }
     return total;
 }
+function estimateCreditScoreFromUtilization(utilizationPct) {
+    if (typeof utilizationPct !== 'number' || !Number.isFinite(utilizationPct))
+        return null;
+    const u = clamp(utilizationPct, 0, 100);
+    if (u <= 10)
+        return 780;
+    if (u <= 30)
+        return 720;
+    if (u <= 50)
+        return 660;
+    if (u <= 80)
+        return 580;
+    return 520;
+}
 export function createFinanceSnapshot(params) {
     const credit = params.cards ? computeCreditSummary(params.cards) : null;
     const bank = params.bank
@@ -82,6 +96,10 @@ export function createFinanceSnapshot(params) {
     const estDebtPayments = credit ? estimateMonthlyDebtPaymentsFromCreditCards(params.cards || [], { minPaymentPct: 0.02 }) : null;
     const dr = computeDebtRatio({ monthlyIncome: bank?.monthly_income ?? null, monthlyDebtPayments: estDebtPayments });
     const netWorthEstimate = typeof bank?.total_balance === 'number' && credit ? Number(bank.total_balance) - Number(credit.totalBalance) : null;
+    const scoreEstimate = estimateCreditScoreFromUtilization(credit?.utilizationPct ?? null);
+    const scoreNote = typeof scoreEstimate === 'number'
+        ? 'Estimate based on credit card utilization only (no credit reports pulled).'
+        : null;
     return {
         version: 1,
         generated_at: new Date().toISOString(),
@@ -92,6 +110,8 @@ export function createFinanceSnapshot(params) {
             net_worth_estimate: Number.isFinite(netWorthEstimate) ? netWorthEstimate : null,
             est_monthly_debt_payments: Number.isFinite(estDebtPayments) ? estDebtPayments : null,
             debt_ratio_pct: dr.debtRatioPct,
+            credit_score_estimate: scoreEstimate,
+            credit_score_note: scoreNote,
         },
     };
 }

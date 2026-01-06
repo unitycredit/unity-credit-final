@@ -10,6 +10,7 @@ app.use(cors({ origin: true, credentials: true }))
 app.use(express.json({ limit: '1mb' }))
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'unity-brain', ts: new Date().toISOString() }))
+app.get('/healthz', (_req, res) => res.json({ ok: true, service: 'unity-brain', ts: new Date().toISOString() }))
 
 rulesRoutes(app)
 executeIntelligenceRoutes(app)
@@ -17,7 +18,7 @@ registerBrainRouter(app)
 
 app.listen(cfg.port, () => {
   // eslint-disable-next-line no-console
-  console.log(`unity-brain listening on http://localhost:${cfg.port}`)
+  console.log(`unity-brain listening on port ${cfg.port}`)
 })
 
 

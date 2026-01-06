@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { resolveModule } from './modules/registry.js';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 function safeTrim(v) {
     return String(v || '').trim();
 }
@@ -70,7 +72,17 @@ export function registerBrainRouter(app) {
             const out = await mod.logicProcess(ctx, reqHost, payload);
             return res.status(out.status).json(out.json);
         }
+        // Dashboard-friendly alias: analyze → core logic.process
+        if (action === 'analyze') {
+            const out = await mod.logicProcess(ctx, reqHost, payload);
+            return res.status(out.status).json(out.json);
+        }
         if (action === 'professional-advice') {
+            const out = await mod.professionalAdvice(ctx, reqHost, payload);
+            return res.status(out.status).json(out.json);
+        }
+        // Back-compat / dashboard naming: analyst_agent → professional advice module.
+        if (action === 'analyst_agent') {
             const out = await mod.professionalAdvice(ctx, reqHost, payload);
             return res.status(out.status).json(out.json);
         }
@@ -93,6 +105,15 @@ export function registerBrainRouter(app) {
         const out = await mod.logicProcess({ app_id: auth.app_id, user_id: null }, readHeader(req, 'host'), req.body);
         return res.status(out.status).json(out.json);
     });
+    // Dashboard endpoint: /v1/analyze (alias of /v1/logic/process).
+    app.post('/v1/analyze', async (req, res) => {
+        const auth = verifyApp(req);
+        if (!auth.ok)
+            return res.status(401).json({ ok: false, error: auth.error || 'Unauthorized', app_id: auth.app_id });
+        const { mod } = resolveModule(auth.app_id);
+        const out = await mod.logicProcess({ app_id: auth.app_id, user_id: null }, readHeader(req, 'host'), req.body);
+        return res.status(out.status).json(out.json);
+    });
     app.post('/v1/professional-advice', async (req, res) => {
         const auth = verifyApp(req);
         if (!auth.ok)
@@ -101,6 +122,69 @@ export function registerBrainRouter(app) {
         const out = await mod.professionalAdvice({ app_id: auth.app_id, user_id: null }, readHeader(req, 'host'), req.body);
         return res.status(out.status).json(out.json);
     });
+    // Convenience: stable dashboard endpoint (maps to professional advice).
+    app.post('/v1/analyst-agent', async (req, res) => {
+        const auth = verifyApp(req);
+        if (!auth.ok)
+            return res.status(401).json({ ok: false, error: auth.error || 'Unauthorized', app_id: auth.app_id });
+        const { mod } = resolveModule(auth.app_id);
+        const out = await mod.professionalAdvice({ app_id: auth.app_id, user_id: null }, readHeader(req, 'host'), req.body);
+        return res.status(out.status).json(out.json);
+    });
+    // Central subscription logic (Stripe-backed via REST API) for Pro gating.
+    // Payload: { user_id: string }
+    app.post('/v1/subscription/status', async (req, res) => {
+        const auth = verifyApp(req);
+        if (!auth.ok)
+            return res.status(401).json({ ok: false, error: auth.error || 'Unauthorized', app_id: auth.app_id });
+        const stripeKey = safeTrim(process.env.STRIPE_SECRET_KEY || process.env.STRIPE_API_KEY || '');
+        if (!stripeKey)
+            return res.status(503).json({ ok: false, error: 'Stripe is not configured on Brain (STRIPE_SECRET_KEY).' });
+        const user_id = safeTrim(req.body?.user_id || '');
+        if (!user_id)
+            return res.status(400).json({ ok: false, error: 'Missing user_id' });
+        async function stripePost(path, body) {
+            const r = await fetch(`https://api.stripe.com${path}`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${stripeKey}`,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body,
+            });
+            const j = await r.json().catch(() => ({}));
+            return { ok: r.ok, status: r.status, json: j };
+        }
+        async function stripeGet(path) {
+            const r = await fetch(`https://api.stripe.com${path}`, {
+                method: 'GET',
+                headers: { Authorization: `Bearer ${stripeKey}` },
+            });
+            const j = await r.json().catch(() => ({}));
+            return { ok: r.ok, status: r.status, json: j };
+        }
+        // Find customer by user_id metadata (UnityCredit checkout sets this).
+        const q = `metadata['user_id']:'${user_id}'`;
+        const search = await stripePost('/v1/customers/search', new URLSearchParams({ query: q, limit: '1' }));
+        const customerId = String(search?.json?.data?.[0]?.id || '').trim();
+        if (!customerId) {
+            return res.json({ ok: true, tier: 'free', premium_until: null, trial_until: null, source: 'brain_stripe' });
+        }
+        const subs = await stripeGet(`/v1/subscriptions?customer=${encodeURIComponent(customerId)}&status=all&limit=10`);
+        const active = Array.isArray(subs?.json?.data) ? subs.json.data.find((x) => x?.status === 'active' || x?.status === 'trialing') : null;
+        if (!active) {
+            return res.json({ ok: true, tier: 'free', premium_until: null, trial_until: null, source: 'brain_stripe' });
+        }
+        const periodEnd = Number(active?.current_period_end || 0);
+        const until = Number.isFinite(periodEnd) && periodEnd > 0 ? new Date(periodEnd * 1000).toISOString() : null;
+        return res.json({
+            ok: true,
+            tier: 'pro',
+            premium_until: until,
+            trial_until: active?.status === 'trialing' ? until : null,
+            source: 'brain_stripe',
+        });
+    });
     app.get('/v1/agents', (req, res) => {
         const auth = verifyApp(req);
         if (!auth.ok)
@@ -108,4 +192,60 @@ export function registerBrainRouter(app) {
         const { mod } = resolveModule(auth.app_id);
         return res.json({ ok: true, agents: mod.listAgents() });
     });
+    // Admin inbox: Support messages from Unity Credit (no chat; only forwards user questions for admins).
+    const supportSchema = z.object({
+        type: z.string().optional(),
+        user_id: z.string().min(1).optional().nullable(),
+        email: z.string().optional().nullable(),
+        subject: z.string().optional().nullable(),
+        message: z.string().min(3),
+        created_at: z.string().optional().nullable(),
+    });
+    async function acceptSupportTicket(req, res) {
+        const auth = verifyApp(req);
+        if (!auth.ok)
+            return res.status(401).json({ ok: false, error: auth.error || 'Unauthorized', app_id: auth.app_id });
+        const parsed = supportSchema.safeParse(req.body || {});
+        if (!parsed.success)
+            return res.status(400).json({ ok: false, error: 'Invalid payload', details: parsed.error.errors });
+        const ticket_id = `sup-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const row = {
+            ticket_id,
+            received_at: new Date().toISOString(),
+            app_id: auth.app_id,
+            user_id: parsed.data.user_id || null,
+            email: parsed.data.email || null,
+            subject: parsed.data.subject || null,
+            message: String(parsed.data.message || '').slice(0, 4000),
+            meta: { type: parsed.data.type || 'SUPPORT_MESSAGE', created_at: parsed.data.created_at || null },
+        };
+        // Best-effort local persistence for Brain Admin panel tooling (dev-friendly).
+        try {
+            const dataDir = path.join(process.cwd(), '.data');
+            const filePath = path.join(dataDir, 'support_inbox.json');
+            await fs.mkdir(dataDir, { recursive: true });
+            let existing = [];
+            try {
+                const raw = await fs.readFile(filePath, 'utf8');
+                const j = JSON.parse(raw);
+                if (Array.isArray(j))
+                    existing = j;
+            }
+            catch {
+                existing = [];
+            }
+            existing.unshift(row);
+            await fs.writeFile(filePath, JSON.stringify(existing.slice(0, 500), null, 2), 'utf8');
+        }
+        catch {
+            // ignore
+        }
+        // eslint-disable-next-line no-console
+        console.log(`[support_ticket] ${row.ticket_id} user=${row.user_id || 'unknown'} subject=${String(row.subject || '').slice(0, 80)}`);
+        return res.json({ ok: true, ticket_id });
+    }
+    // Requested endpoint (Brain admin panel inbox):
+    app.post('/admin/support-tickets', acceptSupportTicket);
+    // Back-compat alias (older Unity Credit builds):
+    app.post('/v1/admin/support/inbox', acceptSupportTicket);
 }

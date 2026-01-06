@@ -30,6 +30,8 @@ export function financeSnapshot(body) {
 const logicProcessReqSchema = z.object({
     question: z.string().min(1),
     prefer_yiddish: z.boolean().optional(),
+    // Optional: include credit card context so the Brain can build a unified finance snapshot.
+    cards: z.array(z.object({ limit: z.number(), balance: z.number() })).optional().nullable(),
     context: z
         .object({
         disclaimer_yi: z.string().optional(),
@@ -60,6 +62,7 @@ export async function logicProcess(ctx, reqHost, body) {
         return { ok: false, status: 400, json: { ok: false, error: 'Invalid payload', details: parsed.error.errors } };
     const question = safeTrim(parsed.data.question);
     const c = parsed.data.context || null;
+    const cards = Array.isArray(parsed.data.cards) ? parsed.data.cards : null;
     const disclaimer = safeTrim(c?.disclaimer_yi || '') || 'די דאטא ווערט געהאלטן פריוואט. מיר ציען נישט קיין קרעדיט רעפארטן.';
     const preferYiddish = typeof parsed.data.prefer_yiddish === 'boolean'
         ? parsed.data.prefer_yiddish
@@ -71,6 +74,7 @@ export async function logicProcess(ctx, reqHost, body) {
             .slice(0, 12)
         : [];
     const financeSnapshot = createFinanceSnapshot({
+        cards: cards && cards.length ? cards : null,
         bank: c?.bank
             ? {
                 monthly_income: typeof c.bank.monthly_income === 'number' ? c.bank.monthly_income : null,

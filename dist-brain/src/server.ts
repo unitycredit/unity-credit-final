@@ -15,6 +15,7 @@ app.use(cors({ origin: true, credentials: true }))
 app.use(express.json({ limit: '1mb' }))
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'dist-brain', ts: new Date().toISOString() }))
+app.get('/healthz', (_req, res) => res.json({ ok: true, service: 'dist-brain', ts: new Date().toISOString() }))
 
 rulesRoutes(app)
 financeRoutes(app)
@@ -27,7 +28,7 @@ adminStatsRoutes(app)
 
 app.listen(cfg.port, () => {
   // eslint-disable-next-line no-console
-  console.log(`dist-brain listening on http://localhost:${cfg.port}`)
+  console.log(`dist-brain listening on port ${cfg.port}`)
 })
 
 

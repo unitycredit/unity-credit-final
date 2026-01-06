@@ -18,7 +18,8 @@ export function requireEnv(name: string) {
 }
 
 export const cfg = {
-  port: envInt('PORT', 4020),
+  // AWS App Runner expects the service to listen on PORT (commonly 8080).
+  port: envInt('PORT', 8080),
   upstreamBrainUrl: env('UPSTREAM_BRAIN_API_URL', env('BRAIN_API_URL', env('UNITY_BRAIN_URL', ''))),
   upstreamLicenseKey: env('UPSTREAM_BRAIN_LICENSE_KEY', env('MASTER_BRAIN_KEY', env('UNITY_BRAIN_LICENSE_KEY', env('UNITY_BRAIN_KEY', '')))),
   unityAppId: env('UNITY_APP_ID', 'UnityCredit-01'),

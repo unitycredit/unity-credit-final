@@ -1,6 +1,9 @@
 // Unity Brain Core: prompt engineering + agent configuration lives here.
 export function agentConfig() {
     return [
+        // Dashboard-facing agent alias (used by UnityCredit UI as a stable name).
+        // The underlying execution still uses the 5-node consensus pipeline.
+        { id: 'analyst_agent', role: 'Analyst Agent', purpose: 'Dashboard Unity Intelligence + short actionable insights' },
         { id: 'node_1', role: 'Core Advisor', purpose: 'Primary answer generation' },
         { id: 'node_2', role: 'Compliance/Safety', purpose: 'Policy + claims guardrails' },
         { id: 'node_3', role: 'Budget Specialist', purpose: 'Heimishe budget grounding' },
