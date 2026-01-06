@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Unity Brain · Admin Dashboard</title>
+    <meta name="robots" content="noindex,nofollow" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="header">
+        <div>
+          <div class="title">Unity Brain · Admin Dashboard</div>
+          <div class="subtitle">Live stats from this Brain service</div>
+        </div>
+        <div class="right">
+          <div class="pill" id="statusPill">Loading…</div>
+          <button class="btn" id="refreshBtn" type="button">Refresh</button>
+        </div>
+      </header>
+
+      <div class="grid">
+        <div class="card">
+          <div class="label">Revenue</div>
+          <div class="value" id="mrr">—</div>
+          <div class="muted" id="arr">—</div>
+        </div>
+        <div class="card">
+          <div class="label">Intelligence Usage</div>
+          <div class="value" id="i30">—</div>
+          <div class="muted" id="insights">—</div>
+        </div>
+        <div class="card">
+          <div class="label">User Growth</div>
+          <div class="value" id="growth">—</div>
+          <div class="muted">Source: unified Supabase</div>
+        </div>
+      </div>
+
+      <div class="card warning" id="warningCard" style="display: none">
+        <div class="label">Warning</div>
+        <div class="muted" id="warningText"></div>
+      </div>
+
+      <div class="card error" id="errorCard" style="display: none">
+        <div class="label">Error</div>
+        <div class="muted" id="errorText"></div>
+      </div>
+
+      <footer class="footer">
+        <div class="muted">
+          Endpoint: <code>/v1/admin/stats</code>
+        </div>
+        <div class="muted">
+          Health: <code>/healthz</code>
+        </div>
+      </footer>
+    </div>
+
+    <script src="./ui.js" defer></script>
+  </body>
+</html>
+
+
