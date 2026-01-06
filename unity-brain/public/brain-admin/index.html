@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Unity Brain · Admin Dashboard</title>
+    <meta name="robots" content="noindex,nofollow" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="header">
+        <div>
+          <div class="title">Unity Brain · Admin Dashboard</div>
+          <div class="subtitle">This service exposes admin stats at <code>/v1/admin/stats</code>.</div>
+        </div>
+      </header>
+
+      <div class="card error" style="margin-top: 16px">
+        <div class="label">Note</div>
+        <div class="muted">
+          This deployment is the <b>unity-brain</b> service. The richer admin JSON endpoint is implemented in <b>dist-brain</b>.
+          If you need the full dashboard, deploy <b>dist-brain</b> (or point your admin UI to its URL) and open
+          <code>/brain-admin</code> there.
+        </div>
+      </div>
+
+      <footer class="footer">
+        <div class="muted">Health: <code>/healthz</code></div>
+      </footer>
+    </div>
+  </body>
+</html>
+
+
