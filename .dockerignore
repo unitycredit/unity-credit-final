@@ -1,0 +1,11 @@
+**/node_modules
+**/.next
+**/.next-dev
+**/dist
+.git
+.gitignore
+.env*
+*.log
+coverage
+out
+
