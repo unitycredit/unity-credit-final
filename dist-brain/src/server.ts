@@ -1,7 +1,6 @@
 import express from 'express'
 import cors from 'cors'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { cfg } from './config.js'
 import { rulesRoutes } from './routes/rules.js'
 import { financeRoutes } from './routes/finance.js'
@@ -12,9 +11,9 @@ import { executeIntelligenceRoutes } from './routes/executeIntelligence.js'
 import { agentRoutes } from './routes/agents.js'
 import { adminStatsRoutes } from './routes/adminStats.js'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-const publicDir = path.join(__dirname, '..', '..', 'public')
+// In App Runner / Docker we start from the service directory (e.g. `cd dist-brain && npm start`),
+// so `process.cwd()` points at the service root. This makes static asset paths stable across TS builds.
+const publicDir = path.join(process.cwd(), 'public')
 
 const app = express()
 app.use(cors({ origin: true, credentials: true }))
@@ -24,7 +23,6 @@ app.get('/health', (_req, res) => res.json({ ok: true, service: 'dist-brain', ts
 app.get('/healthz', (_req, res) => res.json({ ok: true, service: 'dist-brain', ts: new Date().toISOString() }))
 
 // Admin Dashboard (static UI) served directly by the Brain service.
-app.get('/brain-admin', (_req, res) => res.redirect(302, '/brain-admin/'))
 app.use(
   '/brain-admin',
   express.static(path.join(publicDir, 'brain-admin'), {
