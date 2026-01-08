@@ -121,16 +121,14 @@ export async function middleware(_request: NextRequest) {
     return res
   }
 
-  // DEV GUEST MODE:
-  // Allow navigating protected pages without auth in non-production so the UI can be tested end-to-end.
-  // Default is enabled in dev unless NEXT_PUBLIC_DEV_GUEST_MODE is explicitly set to "false".
-  const devGuestAllProtected =
-    process.env.NODE_ENV !== 'production' &&
+  // DEV / GUEST MODE:
+  // Allow navigating protected pages without auth when:
+  // - Running in non-production (default), OR
+  // - Explicitly enabled via NEXT_PUBLIC_DEV_GUEST_MODE=true (even on deployed preview/prod).
+  const guestDevEnabled =
     protect &&
-    process.env.NEXT_PUBLIC_DEV_GUEST_MODE !== 'false'
-  if (devGuestAllProtected) {
-    return res
-  }
+    (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEV_GUEST_MODE === 'true')
+  if (guestDevEnabled) return res
 
   // Edge-safe auth gate: cookie presence only (server-side routes/pages verify auth for real).
   const cookieNames = _request.cookies.getAll().map((c) => c.name)
@@ -154,18 +152,12 @@ export async function middleware(_request: NextRequest) {
     })
   }
   const timedBypass = devTimedBypassEnabled && (bypassCookie === '1' || wantsBypassCookie)
-  // Guest mode (dev-only, explicit): allow dashboard browsing without auth ONLY when enabled.
-  // After auth is verified, we no longer allow implicit localhost bypass.
-  const guestMode =
-    process.env.NODE_ENV !== 'production' &&
-    process.env.NEXT_PUBLIC_DEV_GUEST_MODE === 'true' &&
-    (pathname === '/dashboard' || pathname.startsWith('/dashboard/'))
   const hasSupabaseEnv = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
 
   // DEV OVERRIDE:
   // User requested direct entry without auth. Disable ONLY the redirect-to-/login gate in dev/local.
   // (Emergency controls/referral capture/admin noindex remain active.)
-  if (protect && !devBypass && !timedBypass && !guestMode && hasSupabaseEnv) {
+  if (protect && !devBypass && !timedBypass && hasSupabaseEnv) {
     if (!hasSessionCookie) {
       const login = new URL('/login', url)
       login.searchParams.set('next', pathname)
