@@ -350,10 +350,17 @@ export default function LoginPage() {
 
             {process.env.NODE_ENV !== 'production' ? (
               <div className="pt-2">
-                <Button type="button" variant="outline" className="w-full h-11 font-black" onClick={devBypassEnter}>
-                  Enter Dashboard (Dev Bypass)
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full h-11 font-bold border-gold/40 text-gold bg-transparent hover:bg-gold/10 hover:text-gold hover:border-gold/60"
+                  asChild
+                >
+                  <Link href="/dashboard">Continue as Guest (Dev Mode)</Link>
                 </Button>
-                <div className="mt-1 text-xs text-white/70 text-center">Dev only · skips OTP/Supabase and uses local cached session</div>
+                <div className="mt-1 text-xs text-white/70 text-center">
+                  Dev only · browse the app without login
+                </div>
               </div>
             ) : null}
 

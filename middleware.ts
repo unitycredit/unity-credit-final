@@ -121,6 +121,17 @@ export async function middleware(_request: NextRequest) {
     return res
   }
 
+  // DEV GUEST MODE:
+  // Allow navigating protected pages without auth in non-production so the UI can be tested end-to-end.
+  // Default is enabled in dev unless NEXT_PUBLIC_DEV_GUEST_MODE is explicitly set to "false".
+  const devGuestAllProtected =
+    process.env.NODE_ENV !== 'production' &&
+    protect &&
+    process.env.NEXT_PUBLIC_DEV_GUEST_MODE !== 'false'
+  if (devGuestAllProtected) {
+    return res
+  }
+
   // Edge-safe auth gate: cookie presence only (server-side routes/pages verify auth for real).
   const cookieNames = _request.cookies.getAll().map((c) => c.name)
   const hasSessionCookie =
