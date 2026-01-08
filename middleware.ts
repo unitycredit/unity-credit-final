@@ -96,6 +96,10 @@ export async function middleware(_request: NextRequest) {
     res.headers.set('Cache-Control', 'no-store, private')
   }
 
+  // TEMP (requested): disable ALL auth redirects so the app can be browsed without login.
+  // This bypasses the Supabase session cookie gate for /dashboard, /settings, /premium, etc.
+  return res
+
   // Route protection (Supabase session)
   const protect =
     pathname === '/dashboard' ||

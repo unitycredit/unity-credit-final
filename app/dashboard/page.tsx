@@ -521,30 +521,9 @@ export default function DashboardPage() {
     setReportTimestamp(new Date().toISOString())
     setLoading(false)
 
-    // Dev guest mode: do not block initial page load on auth/session/Brain.
-    if (allowGuest) return
-
-    const result = await getCurrentUser()
-    if (!result.user) {
-      router.replace('/login')
-      return
-    }
-    
-    // Check if email is verified
-    if (result.user && !result.user.email_confirmed_at) {
-      if (allowGuest) {
-        setUser(result.user)
-        setCards([])
-        setLoading(false)
-        return
-      }
-      router.replace('/verify-email')
-      return
-    }
-    
-    setUser(result.user)
-    fetchCards()
-    fetchBankSummary()
+    // TEMP (requested): do not redirect to /login (or /verify-email) at all.
+    // Keep dashboard browsable without any authentication.
+    return
   }
 
   async function runBrainTestSync() {
