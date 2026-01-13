@@ -85,11 +85,14 @@ export default function LoginPage() {
   const emailValue = watch('email')
   const passwordValue = watch('password')
 
-  async function devBypassEnter() {
-    if (process.env.NODE_ENV === 'production') return
-    const email = String(emailValue || '').trim() || 'test@unity.com'
-    document.cookie = 'uc_dev_bypass=1; path=/; max-age=3600; samesite=lax'
-    setLocalSession(email)
+  function enterAsGuest() {
+    try {
+      // Temporary guest bypass: seed a lightweight local session and go straight in.
+      document.cookie = 'uc_dev_bypass=1; path=/; max-age=3600; samesite=lax'
+    } catch {
+      // ignore
+    }
+    setLocalSession('guest@unitycredit.app')
     router.replace('/dashboard')
   }
 
@@ -347,18 +350,16 @@ export default function LoginPage() {
                 )}
               </Button>
 
-              {(process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEV_GUEST_MODE === 'true') && (
-                <div className="pt-3 flex justify-center">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="w-full h-11 font-bold text-white/90 hover:text-white hover:bg-white/10"
-                    asChild
-                  >
-                    <Link href="/dashboard">Continue to Dashboard (Dev Mode)</Link>
-                  </Button>
-                </div>
-              )}
+              <div className="pt-3 flex justify-center">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full h-11 font-bold text-white/90 hover:text-white hover:bg-white/10"
+                  onClick={enterAsGuest}
+                >
+                  Enter as Guest (Skip Login)
+                </Button>
+              </div>
             </form>
 
             <div className="relative">
