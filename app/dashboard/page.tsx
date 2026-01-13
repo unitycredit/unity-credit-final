@@ -255,9 +255,28 @@ export default function DashboardPage() {
   const [cards, setCards] = useState<CreditCard[]>(MOCK_CARDS as any)
   const [loading, setLoading] = useState(false)
 
+  // Guest mode detection:
+  // - In production, we still want guest sessions (created via "Enter as Guest") to bypass Supabase calls,
+  //   otherwise the UI will hit authenticated endpoints and show "Unauthorized".
+  // - We treat either the bypass cookie OR a local session email starting with "guest@" as guest mode.
+  const bypassCookieEnabled =
+    typeof document !== 'undefined' && /(?:^|;\s*)uc_dev_bypass=1(?:;|$)/.test(document.cookie || '')
+  let localSessionEmail = ''
+  try {
+    if (typeof window !== 'undefined') {
+      localSessionEmail = String(getLocalSession()?.email || '').trim().toLowerCase()
+    }
+  } catch {
+    // ignore
+  }
+  const guestSessionActive = bypassCookieEnabled || localSessionEmail.startsWith('guest@')
+
   // Dev UX: default to guest/demo data so UI can be polished without auth/session setup.
   // To force real auth in dev, set NEXT_PUBLIC_DEV_GUEST_MODE=false
-  const allowGuest = process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_DEV_GUEST_MODE !== 'false'
+  const allowGuest =
+    guestSessionActive ||
+    process.env.NEXT_PUBLIC_DEV_GUEST_MODE === 'true' ||
+    (process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_DEV_GUEST_MODE !== 'false')
 
   const [heimisheBudgetItems, setHeimisheBudgetItems] = useState<BudgetItem[]>(DEFAULT_HEIMISHE_BUDGET_ITEMS)
   const [heimisheImportText, setHeimisheImportText] = useState('')
