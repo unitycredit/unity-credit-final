@@ -5,6 +5,8 @@
 /node_modules
 # - And ignore nested node_modules (e.g. unity-brain/node_modules)
 node_modules/
+.next
+.next/
 .next-dev/
 dist-brain/node_modules/
 unity-brain/node_modules/
