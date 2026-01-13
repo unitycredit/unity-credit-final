@@ -21,6 +21,10 @@ unity-brain/node_modules/
 /.next-dev/
 /out/
 
+# nested Next.js app (unity-credit-final)
+unity-credit-final/.next/
+unity-credit-final/node_modules/
+
 # production
 /build
 
