@@ -7,6 +7,7 @@ import { Loader2, TrendingUp, Shield } from 'lucide-react'
 import { toFiniteNumber } from '@/lib/finance/number'
 import { getSupabaseAnonClient } from '@/lib/supabase-browser'
 import { AUTONOMOUS_UI_ENABLED } from '@/lib/autonomous-ui'
+import { getLocalSession } from '@/lib/local-session'
 import { MOCK_MONTHLY_SAVINGS_SUMMARY } from '@/constants/mockData'
 
 type SeriesPoint = { month: string; value: number }
@@ -48,6 +49,17 @@ export default function MonthlySavingsSummary() {
   const [loading, setLoading] = useState(false)
   // Primary source: local mock data (autonomous UI). Network can optionally hydrate/override it.
   const [data, setData] = useState<Summary | null>(MOCK_MONTHLY_SAVINGS_SUMMARY as any)
+  const guestModeActive = useMemo(() => {
+    const bypassCookieEnabled =
+      typeof document !== 'undefined' && /(?:^|;\s*)uc_dev_bypass=1(?:;|$)/.test(document.cookie || '')
+    let email = ''
+    try {
+      if (typeof window !== 'undefined') email = String(getLocalSession()?.email || '').trim().toLowerCase()
+    } catch {
+      // ignore
+    }
+    return bypassCookieEnabled || email.startsWith('guest@')
+  }, [])
   const reportGeneratedLabel = useMemo(() => {
     const d = new Date()
     const human = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(d)
@@ -56,6 +68,11 @@ export default function MonthlySavingsSummary() {
 
   async function load() {
     if (loading) return
+    // Guest mode: never hit network/Supabase. Keep the UI fully populated with mock data.
+    if (guestModeActive) {
+      setData(MOCK_MONTHLY_SAVINGS_SUMMARY as any)
+      return
+    }
     if (AUTONOMOUS_UI_ENABLED) {
       setData(MOCK_MONTHLY_SAVINGS_SUMMARY as any)
       return
@@ -73,6 +90,7 @@ export default function MonthlySavingsSummary() {
 
   useEffect(() => {
     load().catch(() => null)
+    if (guestModeActive) return
     if (AUTONOMOUS_UI_ENABLED) return
     const id = window.setInterval(() => load().catch(() => null), 30_000)
     return () => window.clearInterval(id)
@@ -81,6 +99,7 @@ export default function MonthlySavingsSummary() {
 
   // Realtime: refresh immediately when the Brain writes a new savings snapshot or apply event.
   useEffect(() => {
+    if (guestModeActive) return
     if (AUTONOMOUS_UI_ENABLED) return
     const { client } = getSupabaseAnonClient()
     if (!client) return

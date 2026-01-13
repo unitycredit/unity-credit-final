@@ -7,6 +7,7 @@ import { useToast } from '@/components/ui/use-toast'
 import { Building2, Link2, Lock, RefreshCw, ShieldCheck } from 'lucide-react'
 import { usePlaidLink } from 'react-plaid-link'
 import { createPlaidLinkTokenAction } from '@/lib/actions/plaid'
+import { getLocalSession } from '@/lib/local-session'
 
 type Props = {
   onSummary?: (summary: {
@@ -37,9 +38,21 @@ export default function BankConnectionPlaceholder({ onSummary, onSyncingChange, 
   const [pendingOpen, setPendingOpen] = useState(false)
   const bankActive = status === 'connected'
   const reconnectRequired = status === 'reconnect_required'
+  const guestModeActive = useMemo(() => {
+    const bypassCookieEnabled =
+      typeof document !== 'undefined' && /(?:^|;\s*)uc_dev_bypass=1(?:;|$)/.test(document.cookie || '')
+    let email = ''
+    try {
+      if (typeof window !== 'undefined') email = String(getLocalSession()?.email || '').trim().toLowerCase()
+    } catch {
+      // ignore
+    }
+    return bypassCookieEnabled || email.startsWith('guest@')
+  }, [])
 
   // Read last sync + detect reconnect required (best-effort; does not block UI).
   useEffect(() => {
+    if (guestModeActive) return
     let cancelled = false
     ;(async () => {
       try {
@@ -60,6 +73,10 @@ export default function BankConnectionPlaceholder({ onSummary, onSyncingChange, 
   }, [])
 
   const handleConnect = async () => {
+    if (guestModeActive) {
+      toast({ title: 'Guest mode', description: 'Bank connection is disabled in guest mode. Use Demo bank instead.' })
+      return
+    }
     if (connecting) return
     setConnecting(true)
     try {
@@ -234,6 +251,10 @@ export default function BankConnectionPlaceholder({ onSummary, onSyncingChange, 
   }
 
   const handleManualSync = async () => {
+    if (guestModeActive) {
+      toast({ title: 'Guest mode', description: 'Manual sync is disabled in guest mode. Use Demo bank instead.' })
+      return
+    }
     if (syncing || connecting || mocking) return
     setSyncing(true)
     try {
@@ -330,7 +351,7 @@ export default function BankConnectionPlaceholder({ onSummary, onSyncingChange, 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <Button
             onClick={handleConnect}
-            disabled={connecting || mocking}
+            disabled={guestModeActive || connecting || mocking}
             variant="primaryAction"
             className="w-full h-12 shadow-lg hover:opacity-95"
           >
@@ -355,7 +376,7 @@ export default function BankConnectionPlaceholder({ onSummary, onSyncingChange, 
             type="button"
             variant="outline"
             onClick={handleManualSync}
-            disabled={!bankActive || syncing || connecting || mocking}
+            disabled={guestModeActive || !bankActive || syncing || connecting || mocking}
             className="w-full h-12 font-semibold"
           >
             <span className="rtl-text flex items-center gap-2 justify-center">

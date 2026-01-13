@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { useToast } from '@/components/ui/use-toast'
 import { getSupabaseAnonClient } from '@/lib/supabase-browser'
 import { getLoginHref } from '@/lib/local-auth-bypass'
+import { getLocalSession } from '@/lib/local-session'
 
 function readCookie(name: string) {
   if (typeof document === 'undefined') return ''
@@ -24,6 +25,17 @@ export default function ReferralWelcomeCard() {
   const [input, setInput] = useState<string>('')
   const [myCode, setMyCode] = useState<string>('')
   const [loadingMyCode, setLoadingMyCode] = useState(false)
+  const guestModeActive = useMemo(() => {
+    const bypassCookieEnabled =
+      typeof document !== 'undefined' && /(?:^|;\s*)uc_dev_bypass=1(?:;|$)/.test(document.cookie || '')
+    let email = ''
+    try {
+      if (typeof window !== 'undefined') email = String(getLocalSession()?.email || '').trim().toLowerCase()
+    } catch {
+      // ignore
+    }
+    return bypassCookieEnabled || email.startsWith('guest@')
+  }, [])
 
   useEffect(() => {
     // Initialize from cookie or URL query string.
@@ -56,6 +68,10 @@ export default function ReferralWelcomeCard() {
 
   async function loadMyCode() {
     if (loadingMyCode) return
+    if (guestModeActive) {
+      setMyCode('')
+      return
+    }
     setLoadingMyCode(true)
     try {
       const { client } = getSupabaseAnonClient()
