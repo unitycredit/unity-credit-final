@@ -3,7 +3,7 @@ const { spawn } = require('node:child_process')
 const readline = require('node:readline')
 
 const HOST = '0.0.0.0'
-const PORT = '3002'
+const PORT = '3000'
 
 function start() {
   // Use Next's CLI entry directly so this works cross-platform without relying on `next.cmd`.

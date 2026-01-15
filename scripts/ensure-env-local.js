@@ -33,7 +33,41 @@ function write(p, content) {
 function main() {
   const root = process.cwd()
   const envLocal = path.join(root, '.env.local')
-  if (exists(envLocal)) return
+  if (exists(envLocal)) {
+    // Best-effort validation (no secrets printed):
+    // remind devs to configure AWS RDS / NextAuth when `.env.local` exists but is incomplete.
+    try {
+      const raw = read(envLocal)
+      const hasDbUrl = /(^|\n)\s*DATABASE_URL\s*=/.test(raw)
+      const hasDbPieces = /(^|\n)\s*DB_HOST\s*=/.test(raw) && /(^|\n)\s*DB_PASSWORD\s*=/.test(raw)
+      const looksPlaceholder =
+        /YOUR_PASSWORD/.test(raw) ||
+        /DB_PASSWORD\s*=\s*(?:YOUR_PASSWORD|change-me|replace-)/.test(raw) ||
+        /DATABASE_URL\s*=.*YOUR_PASSWORD/.test(raw)
+      if (!hasDbUrl && !hasDbPieces) {
+        console.warn(
+          [
+            '[env] Missing AWS RDS config in .env.local.',
+            '      Add DATABASE_URL or DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME.',
+            '      Expected endpoint: unity-credit-db.cluster-c3yemoqwimik.us-east-2.rds.amazonaws.com',
+          ].join('\n')
+        )
+      } else if (looksPlaceholder) {
+        console.warn(
+          [
+            '[env] AWS RDS variables appear to be placeholders in .env.local.',
+            '      Replace YOUR_PASSWORD / change-me values with real credentials before running auth.',
+          ].join('\n')
+        )
+      }
+      if (!/(^|\n)\s*NEXTAUTH_SECRET\s*=/.test(raw)) {
+        console.warn('[env] Missing NEXTAUTH_SECRET in .env.local (required for stable login sessions in production).')
+      }
+    } catch {
+      // ignore
+    }
+    return
+  }
 
   const template = path.join(root, 'DOTENV_LOCAL_TEMPLATE.txt')
   const example = path.join(root, 'env.example')

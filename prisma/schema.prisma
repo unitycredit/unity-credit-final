@@ -128,3 +128,14 @@ model EmailOtp {
   @@map("uc_email_otps")
 }
 
+// Legacy/admin table (created/seeded by create_tables.py + create_admin.py).
+// Used for username-based admin login.
+model UnityUser {
+  id            Int     @id @default(autoincrement())
+  username      String  @unique @db.VarChar(150)
+  hashedPassword String @map("hashed_password") @db.VarChar(255)
+  isActive      Boolean @default(true) @map("is_active")
+
+  @@map("unity_users")
+}
+

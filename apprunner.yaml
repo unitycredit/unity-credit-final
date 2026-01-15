@@ -1,0 +1,18 @@
+version: 1.0
+runtime: nodejs22
+
+build:
+  commands:
+    pre-build:
+      - npm ci
+    build:
+      - npx prisma generate
+      - npm run build
+
+run:
+  command: node node_modules/next/dist/bin/next start -H 0.0.0.0 -p 8080
+  network:
+    port: 8080
+  env:
+    - name: NODE_ENV
+      value: production
