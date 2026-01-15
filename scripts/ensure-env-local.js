@@ -35,12 +35,31 @@ function parseEnv(raw) {
   String(raw || '')
     .split(/\r?\n/g)
     .forEach((line) => {
-      const s = String(line || '').trim()
+      let s = String(line || '').trim()
       if (!s || s.startsWith('#')) return
-      const idx = s.indexOf('=')
+
+      // Strip BOM / zero-width chars that can break dotenv parsing.
+      // (These can appear when copying secrets from rich text / chat apps.)
+      s = s.replace(/^[\uFEFF\u200B\u200C\u200D\u2060]+/, '')
+
+      // Support common shells:
+      // - export KEY=VALUE
+      // - set KEY=VALUE
+      // Also support KEY: VALUE (common mistake when copying).
+      if (s.startsWith('export ')) s = s.slice('export '.length).trim()
+      if (s.startsWith('set ')) s = s.slice('set '.length).trim()
+
+      let idx = s.indexOf('=')
+      let sep = '='
+      if (idx <= 0) {
+        idx = s.indexOf(':')
+        sep = ':'
+      }
       if (idx <= 0) return
+
       const key = s.slice(0, idx).trim()
       let value = s.slice(idx + 1)
+      if (sep === ':') value = value.trimStart()
       // Remove surrounding quotes (best-effort).
       if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
         value = value.slice(1, -1)
@@ -63,6 +82,74 @@ function isPlaceholderValue(v) {
   )
 }
 
+function firstNonPlaceholder(map, keys) {
+  for (const k of keys) {
+    const v = map[k]
+    if (v && !isPlaceholderValue(v)) return v
+  }
+  return ''
+}
+
+function stripQuotes(v) {
+  let s = String(v || '')
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) s = s.slice(1, -1)
+  return s
+}
+
+function extractAssignedValue(raw, key) {
+  // Best-effort: find `KEY=...` anywhere in the file and capture until end-of-line.
+  // This works even if the line has invisible prefixes that prevent clean `^KEY=` matches.
+  const re = new RegExp(`${key}\\s*=\\s*([^\\r\\n#]+)`, 'm')
+  const m = String(raw || '').match(re)
+  if (!m) return ''
+  return stripQuotes(String(m[1] || '').trim())
+}
+
+function normalizeEnvLocal(raw) {
+  const map = parseEnv(raw)
+  const lines = []
+  const hasBom = raw.charCodeAt(0) === 0xfeff || raw.includes('\uFEFF')
+  const hasZeroWidth = /[\u200B\u200C\u200D\u2060]/.test(raw)
+  const hasCleanDbUrl = /(^|\n)\s*DATABASE_URL\s*=/.test(raw)
+  const mentionsDbUrl = /DATABASE_URL\s*=/.test(raw)
+  const forceEmit = hasBom || hasZeroWidth || (mentionsDbUrl && !hasCleanDbUrl)
+
+  // If someone used Postgres/pg standard env names, map them to our app's expected keys.
+  const candidates = {
+    DATABASE_URL: ['DATABASE_URL', 'POSTGRES_URL', 'POSTGRESQL_URL', 'PG_CONNECTION_STRING', 'PGURL'],
+    DB_HOST: ['DB_HOST', 'PGHOST', 'POSTGRES_HOST', 'POSTGRESQL_HOST', 'RDS_HOST', 'AWS_RDS_HOST'],
+    DB_PORT: ['DB_PORT', 'PGPORT', 'POSTGRES_PORT', 'POSTGRESQL_PORT', 'RDS_PORT', 'AWS_RDS_PORT'],
+    DB_USER: ['DB_USER', 'PGUSER', 'POSTGRES_USER', 'POSTGRES_USERNAME', 'RDS_USER', 'AWS_RDS_USER', 'DB_USERNAME', 'DATABASE_USER'],
+    DB_PASSWORD: ['DB_PASSWORD', 'PGPASSWORD', 'POSTGRES_PASSWORD', 'RDS_PASSWORD', 'AWS_RDS_PASSWORD', 'DB_PASS', 'DATABASE_PASSWORD'],
+    DB_NAME: ['DB_NAME', 'PGDATABASE', 'POSTGRES_DB', 'POSTGRES_DATABASE', 'RDS_DB', 'AWS_RDS_DB', 'DATABASE_NAME'],
+  }
+
+  for (const targetKey of Object.keys(candidates)) {
+    const hasTarget = Object.prototype.hasOwnProperty.call(map, targetKey)
+    const targetVal = hasTarget ? map[targetKey] : ''
+    // If the file contains BOM/zero-width chars, we force re-emitting keys so the last occurrence is clean.
+    if (!forceEmit && hasTarget && !isPlaceholderValue(targetVal)) continue
+
+    let v = firstNonPlaceholder(map, candidates[targetKey])
+    // Fallback: if we couldn't parse the key cleanly, extract via regex.
+    if (!v && targetKey === 'DATABASE_URL') {
+      v = extractAssignedValue(raw, 'DATABASE_URL')
+    }
+    if (!v) continue
+
+    lines.push(`${targetKey}=${v}`)
+  }
+
+  if (!lines.length) return { raw, normalizedCount: 0 }
+
+  const next =
+    raw.replace(/\s+$/g, '') +
+    `\n\n# Normalized keys by scripts/ensure-env-local.js (${new Date().toISOString()})\n` +
+    lines.join('\n') +
+    '\n'
+  return { raw: next, normalizedCount: lines.length }
+}
+
 function main() {
   const root = process.cwd()
   const envLocal = path.join(root, '.env.local')
@@ -72,6 +159,18 @@ function main() {
     // remind devs to configure AWS RDS / NextAuth when `.env.local` exists but is incomplete.
     try {
       let raw = read(envLocal)
+
+      // Repair common .env.local key mistakes (no secrets printed).
+      try {
+        const norm = normalizeEnvLocal(raw)
+        if (norm.normalizedCount) {
+          raw = norm.raw
+          write(envLocal, raw)
+          console.log(`[env] Normalized ${norm.normalizedCount} keys inside .env.local.`)
+        }
+      } catch {
+        // ignore normalize failures
+      }
       // If a developer put real creds in `.env` (common), `.env.local` takes precedence in Next.js
       // and can accidentally override those values with placeholders. We sync missing keys from `.env`
       // into `.env.local` (local-only file) without printing secrets.
