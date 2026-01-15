@@ -19,6 +19,7 @@
     "sales-accelerator:worker": "node scripts/sales-accelerator-worker.js"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.969.0",
     "@aws-sdk/client-secrets-manager": "^3.969.0",
     "@aws-sdk/client-sesv2": "^3.969.0",
     "@hookform/resolvers": "^3.3.4",
