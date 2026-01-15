@@ -1,0 +1,130 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// UnityCredit core tables (Postgres / AWS RDS)
+// ============================================================
+
+model User {
+  id              String    @id @default(uuid()) @db.Uuid
+  email           String?   @unique
+  firstName       String?   @map("first_name")
+  lastName        String?   @map("last_name")
+  phone           String?
+  passwordHash    String?   @map("password_hash")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  creditCards       CreditCard[]
+  plaidTransactions PlaidTransaction[]
+  plaidAccounts     PlaidAccount[]
+  bankSyncState     BankSyncState?
+  emailOtps         EmailOtp[]
+
+  @@map("users")
+}
+
+model CreditCard {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  last4     String
+  name      String
+  apr       Decimal? @db.Decimal(5, 2)
+  limit     Decimal  @db.Decimal(10, 2)
+  balance   Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("credit_cards")
+}
+
+model PlaidTransaction {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  plaidTransactionId String   @map("plaid_transaction_id")
+  amount             Decimal  @db.Decimal(65, 30)
+  currency           String   @default("usd")
+  name               String?
+  merchantName       String?  @map("merchant_name")
+  categoryPrimary    String?  @map("category_primary")
+  categoryDetailed   String?  @map("category_detailed")
+  occurredOn         DateTime @map("occurred_on") @db.Date
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, plaidTransactionId])
+  @@index([userId, occurredOn(sort: Desc)])
+  @@map("plaid_transactions")
+}
+
+model PlaidAccount {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  itemId         String?  @map("item_id")
+  plaidAccountId String   @map("plaid_account_id")
+  name           String?
+  mask           String?
+  officialName   String?  @map("official_name")
+  type           String?
+  subtype        String?
+  currentBalance Decimal? @map("current_balance") @db.Decimal(65, 30)
+  availableBalance Decimal? @map("available_balance") @db.Decimal(65, 30)
+  isoCurrencyCode String   @default("usd") @map("iso_currency_code")
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, plaidAccountId])
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("plaid_accounts")
+}
+
+model BankSyncState {
+  userId          String   @id @map("user_id") @db.Uuid
+  provider        String   @default("plaid")
+  status          String   @default("never_connected")
+  lastSyncAt      DateTime? @map("last_sync_at") @db.Timestamptz(6)
+  lastSuccessAt   DateTime? @map("last_success_at") @db.Timestamptz(6)
+  lastErrorCode   String?  @map("last_error_code")
+  lastErrorMessage String? @map("last_error_message")
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, updatedAt(sort: Desc)])
+  @@map("bank_sync_state")
+}
+
+model EmailOtp {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  email     String
+  emailHash String   @map("email_hash")
+  purpose   String   @default("signup")
+  salt      String
+  codeHash  String   @map("code_hash")
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([emailHash, purpose, createdAt(sort: Desc)])
+  @@index([expiresAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("uc_email_otps")
+}
+

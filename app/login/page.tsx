@@ -16,6 +16,7 @@ import { useI18n } from '@/components/LanguageProvider'
 import UnityCreditBrandStack from '@/components/UnityCreditBrandStack'
 import { setLocalSession } from '@/lib/local-session'
 import { isLocalAuthBypassEnabled } from '@/lib/local-auth-bypass'
+import { getSession, signIn } from 'next-auth/react'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -56,15 +57,14 @@ export default function LoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, setValue])
 
-  // If already logged in (valid Supabase cookie session), send directly to dashboard.
+  // If already logged in, send directly to dashboard.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch('/api/auth/me', { cache: 'no-store' })
-        const json = await res.json().catch(() => ({}))
+        const session = await getSession()
         if (cancelled) return
-        if (res.ok && (json as any)?.ok && (json as any)?.user?.id) {
+        if ((session as any)?.user?.id) {
           router.replace('/dashboard')
         }
       } catch {
@@ -137,13 +137,11 @@ export default function LoginPage() {
 
     let result: any
     try {
-      const resp = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: data.email, password: data.password }),
+      result = await signIn('credentials', {
+        redirect: false,
+        email: String(data.email || '').trim(),
+        password: String(data.password || ''),
       })
-      result = await resp.json().catch(() => ({}))
-      ;(result as any).__status = resp.status
     } catch (e: any) {
       // eslint-disable-next-line no-console
       console.error('[LOGIN] Network/Server error', e?.message || e)
@@ -151,52 +149,14 @@ export default function LoginPage() {
       return
     }
 
-    if (result.error) {
-      // eslint-disable-next-line no-console
-      console.error('[LOGIN] Unauthorized/Error', { error: result.error, details: result.details || null })
-      // Translate common Supabase errors to Yiddish
-      let errorMessage = result.error
-      const isInvalidCreds =
-        result.error.includes('Invalid login credentials') ||
-        result.error.includes('Invalid email or password')
+    if (!result || result.error) {
+      const rawErr = String(result?.error || '')
+      let errorMessage = 'אומגילטיגע אימעיל אדער פּאַראָל. ביטע פרובירט נאכאמאל.'
 
-      if (isInvalidCreds) {
-        errorMessage = 'אומגילטיגע אימעיל אדער פּאַראָל. ביטע פרובירט נאכאמאל.'
-        setLoginError(errorMessage)
-      } else {
-        if (result.error.includes('נישט וועריפיצירט') || result.error.includes('Email not confirmed') || Number(result.__status) === 403) {
-          errorMessage = 'אייער אימעיל איז נאך נישט באַשטעטיגט. ביטע נעמט דעם קאָד (OTP) פון אייער אימעיל, אדער קליקט דעם לינק, און וועריפיצירט.'
-          // Best-effort: trigger Unity Credit OTP (Resend-backed) so the user actually receives a 6-digit code.
-          try {
-            await fetch('/api/auth/otp/send', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email: String(data.email || '').trim(), purpose: 'signup' }),
-            })
-          } catch {
-            // ignore
-          }
-          // Send user directly to verification flow with email prefilled (works even without a session).
-          router.push(`/verify-email?email=${encodeURIComponent(String(data.email || '').trim())}`)
-        } else if (result.error.includes('Too many requests')) {
-          errorMessage = 'צו פיל פראבען. ביטע ווארט א רגע און פרובירט נאכאמאל שפעטער.'
-        }
-        setLoginError('') // Do not show inline red box for non-credential errors
-      }
-
-      toast({
-        title: 'אַרײַנלאָגין איז נישט מצליח',
-        description: errorMessage,
-        variant: 'destructive',
-      })
-    } else {
-      // Check if email is verified
-      if (result.user && !result.user.email_confirmed_at) {
-        toast({
-          title: 'אימעיל איז נישט באַשטעטיגט',
-          description: 'ביטע באַשטעטיגט אייער אימעיל ערשט.',
-          variant: 'destructive',
-        })
+      if (rawErr.includes('EMAIL_NOT_VERIFIED')) {
+        errorMessage =
+          'אייער אימעיל איז נאך נישט באַשטעטיגט. ביטע נעמט דעם קאָד (OTP) פון אייער אימעיל און וועריפיצירט.'
+        // Best-effort: trigger OTP so the user actually receives a 6-digit code.
         try {
           await fetch('/api/auth/otp/send', {
             method: 'POST',
@@ -207,16 +167,26 @@ export default function LoginPage() {
           // ignore
         }
         router.push(`/verify-email?email=${encodeURIComponent(String(data.email || '').trim())}`)
+        setLoginError('')
       } else {
-        toast({
-          title: 'געטאָן',
-          description: 'איר זענט אַרײַנגעלאָגט.',
-        })
-        router.push('/dashboard')
-        router.refresh()
-        setLocalSession(String(data.email || '').trim(), String(result.user?.id || '').trim() || undefined)
+        setLoginError(errorMessage)
       }
+
+      toast({
+        title: 'אַרײַנלאָגין איז נישט מצליח',
+        description: errorMessage,
+        variant: 'destructive',
+      })
+      return
     }
+
+    toast({
+      title: 'געטאָן',
+      description: 'איר זענט אַרײַנגעלאָגט.',
+    })
+    router.push('/dashboard')
+    router.refresh()
+    setLocalSession(String(data.email || '').trim())
   }
 
   return (
