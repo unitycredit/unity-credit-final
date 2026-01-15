@@ -2,8 +2,6 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { getSupabaseAnonClient } from '@/lib/supabase-browser'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,11 +9,13 @@ import { Mail, Loader2, ArrowLeft, Shield } from 'lucide-react'
 import { getLoginHref } from '@/lib/local-auth-bypass'
 
 export default function ForgotPasswordPage() {
-  const router = useRouter()
-  const [{ client: supabase, error: supabaseError }] = useState(() => getSupabaseAnonClient())
   const [email, setEmail] = useState('')
+  const [code, setCode] = useState('')
+  const [newPassword, setNewPassword] = useState('')
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [reset, setReset] = useState(false)
   const [error, setError] = useState<string>('')
 
   async function send() {
@@ -26,22 +26,55 @@ export default function ForgotPasswordPage() {
       setError('ביטע שרייבט אריין א גילטיגע אימעיל אדרעס.')
       return
     }
-    if (!supabase) {
-      setError(supabaseError || 'סיסטעם קאנפיגוראציע פעלט (Supabase).')
-      return
-    }
     setSending(true)
     try {
-      // Supabase will send the reset email using its configured email provider.
-      const { error: err } = await supabase.auth.resetPasswordForEmail(e, {
-        redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
+      const resp = await fetch('/api/auth/password-reset/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: e }),
       })
-      if (err) throw err
+      const json = await resp.json().catch(() => ({}))
+      if (!resp.ok || !json?.ok) throw new Error(String(json?.error || 'עס איז נישט געלונגען צו שיקן א קאָד.'))
       setSent(true)
     } catch (e: any) {
       setError(String(e?.message || 'עס איז נישט געלונגען צו שיקן א ריסט־אימעיל.'))
     } finally {
       setSending(false)
+    }
+  }
+
+  async function confirmReset() {
+    if (resetting) return
+    setError('')
+    const e = String(email || '').trim()
+    const c = String(code || '').trim().replace(/\s+/g, '')
+    const p = String(newPassword || '').trim()
+    if (!e || !e.includes('@')) {
+      setError('ביטע שרייבט אריין א גילטיגע אימעיל אדרעס.')
+      return
+    }
+    if (!/^\d{6}$/.test(c)) {
+      setError('ביטע שרייבט אריין דעם 6-ציפערן קאָד פון אייער אימעיל.')
+      return
+    }
+    if (p.length < 8) {
+      setError('פאסווארט איז נישט שטארק גענוג. (מינדסטער 8 כאַראַקטערס)')
+      return
+    }
+    setResetting(true)
+    try {
+      const resp = await fetch('/api/auth/password-reset/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: e, code: c, password: p }),
+      })
+      const json = await resp.json().catch(() => ({}))
+      if (!resp.ok || !json?.ok) throw new Error(String(json?.error || 'ריסט איז נישט געלונגען.'))
+      setReset(true)
+    } catch (e: any) {
+      setError(String(e?.message || 'ריסט איז נישט געלונגען.'))
+    } finally {
+      setResetting(false)
     }
   }
 
@@ -56,13 +89,17 @@ export default function ForgotPasswordPage() {
             </div>
             <CardTitle className="text-2xl font-black text-center text-primary rtl-text">פארגעסן פּאַראָל</CardTitle>
             <CardDescription className="text-center text-muted-foreground rtl-text">
-              שרייבט אריין אייער אימעיל, און מיר וועלן שיקן א לינק צו ריסטירן אייער פּאַראָל.
+              שרייבט אריין אייער אימעיל, און Cognito וועט שיקן א קאָד צו ריסטירן אייער פּאַראָל.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {sent ? (
+            {reset ? (
               <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 rtl-text text-right text-sm text-emerald-100">
-                געשיקט. ביטע טשעקט אייער אימעיל פארן ריסט־לינק.
+                פּאַראָל ריסט איז געלונגען. איר קענט יעצט גיין צוריק צו לאגין.
+              </div>
+            ) : sent ? (
+              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 rtl-text text-right text-sm text-emerald-100">
+                קאָד געשיקט. ביטע שרייבט אריין דעם קאָד און א נייעם פּאַראָל.
               </div>
             ) : null}
 
@@ -78,14 +115,45 @@ export default function ForgotPasswordPage() {
                 placeholder="you@example.com"
                 dir="ltr"
                 className="h-11 bg-slate-800/50 text-white placeholder:text-white/60 border-white/10"
-                disabled={sending || sent}
+                disabled={sending || resetting || reset}
               />
             </div>
 
-            <Button type="button" className="w-full h-11 font-semibold" onClick={send} disabled={sending || sent}>
-              {sending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              <span className="rtl-text">{sending ? 'שיקט...' : 'שיק ריסט־לינק'}</span>
-            </Button>
+            {!sent ? (
+              <Button type="button" className="w-full h-11 font-semibold" onClick={send} disabled={sending || reset}>
+                {sending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                <span className="rtl-text">{sending ? 'שיקט...' : 'שיק קאָד'}</span>
+              </Button>
+            ) : null}
+
+            {sent && !reset ? (
+              <div className="space-y-2">
+                <div className="text-sm font-semibold text-primary rtl-text text-right">קאָד</div>
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="123456"
+                  dir="ltr"
+                  inputMode="numeric"
+                  className="h-11 bg-slate-800/50 text-white placeholder:text-white/60 border-white/10 tracking-widest"
+                  disabled={resetting || reset}
+                />
+                <div className="text-sm font-semibold text-primary rtl-text text-right">נייער פּאַראָל</div>
+                <Input
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="••••••••"
+                  dir="ltr"
+                  type="password"
+                  className="h-11 bg-slate-800/50 text-white placeholder:text-white/60 border-white/10"
+                  disabled={resetting || reset}
+                />
+                <Button type="button" className="w-full h-11 font-semibold" onClick={confirmReset} disabled={resetting || reset}>
+                  {resetting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  <span className="rtl-text">{resetting ? 'ריסטירט...' : 'ריסט פּאַראָל'}</span>
+                </Button>
+              </div>
+            ) : null}
 
             <Link href={getLoginHref()}>
               <Button type="button" variant="ghost" className="w-full">
@@ -95,7 +163,7 @@ export default function ForgotPasswordPage() {
             </Link>
 
             <div className="text-[11px] text-muted-foreground rtl-text text-right">
-              נאטיץ: אין פראדאקשן דארף Supabase זיין קאנפיגורירט מיט א אימעיל־פראָוויידער כדי די ריסט־אימעיל זאל ארויסגיין.
+              נאטיץ: Cognito מוז זיין קאנפיגורירט מיט Email sender (Cognito/SES) כדי דער קאָד זאל ארויסגיין.
             </div>
           </CardContent>
         </Card>

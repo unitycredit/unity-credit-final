@@ -1,21 +1,22 @@
 'use server'
 
-import { createClient, createServerClient } from '@/lib/supabase'
 import { loginSchema, signupSchema, type LoginInput, type SignupInput } from '@/lib/validations'
 import { createAuditLog } from '@/lib/security'
 import { headers } from 'next/headers'
-import { getSupabaseRuntimeConfig } from '@/lib/runtime-env'
 import { enforceRateLimitKeyed } from '@/lib/server-rate-limit'
 import { createHash } from 'node:crypto'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/prisma'
-import { verifyPassword } from '@/lib/auth'
+import { callCognitoBoto3 } from '@/lib/aws/cognito-boto3'
 
 const toYiddishError = (msg: string) => {
   const text = msg || ''
   if (text.includes('User already registered')) return 'דער אימעיל איז שוין רעגיסטרירט. ביטע נוצט לאגין.'
   if (text.includes('Email not confirmed')) return 'אייער אימעיל איז נאך נישט וועריפיצירט. ביטע טשעקט אייער אימעיל.'
   if (text.includes('Invalid login credentials') || text.includes('Invalid email or password')) return 'אומגילטיגע אימעיל אדער פאסווארט. פרובירט נאכאמאל.'
+  if (text.includes('UsernameExistsException')) return 'דער אימעיל איז שוין רעגיסטרירט. ביטע נוצט לאגין.'
+  if (text.includes('UserNotConfirmedException')) return 'אייער אימעיל איז נאך נישט באַשטעטיגט. ביטע וועריפיצירט.'
+  if (text.includes('NotAuthorizedException')) return 'אומגילטיגע אימעיל אדער פאסווארט. פרובירט נאכאמאל.'
   if (text.includes('Password')) return 'פאסווארט איז נישט שטארק גענוג. ביטע נוצט א שטארקערן פאסווארט.'
   if (text.includes('Too many requests')) return 'צו פיל פראבען. ביטע ווארט א ביסל און פרובירט ווידער.'
   return 'א טעות איז פארגעקומען. פרובירט נאכאמאל אדער קאנטאקט סופּפּאָרט.'
@@ -49,16 +50,43 @@ export async function signInAction(data: LoginInput) {
 
     // NOTE:
     // Server Actions cannot easily establish a NextAuth browser session (it requires the NextAuth callback flow + CSRF).
-    // This action therefore only validates credentials against AWS RDS Postgres.
+    // This action therefore only validates credentials against AWS Cognito.
     const emailNorm = String(validation.data.email || '').trim().toLowerCase()
-    const user = await prisma.user.findUnique({
-      where: { email: emailNorm },
-      select: { id: true, email: true, passwordHash: true, emailVerifiedAt: true },
+    const resp = await callCognitoBoto3<{ claims?: any }>('initiate_auth', {
+      email: emailNorm,
+      password: String(validation.data.password || ''),
     })
-    if (!user?.id || !user.passwordHash) return { error: 'אומגילטיגע אימעיל אדער פאסווארט. פרובירט נאכאמאל.' }
-    if (process.env.NODE_ENV === 'production' && !user.emailVerifiedAt) return { error: 'אייער אימעיל איז נאך נישט וועריפיצירט. ביטע טשעקט אייער אימעיל.' }
-    const ok = await verifyPassword(String(validation.data.password || ''), user.passwordHash)
-    if (!ok) return { error: 'אומגילטיגע אימעיל אדער פאסווארט. פרובירט נאכאמאל.' }
+    if (!resp.ok) return { error: toYiddishError(String((resp as any)?.error_code || (resp as any)?.error || '')) }
+
+    const claims = (resp as any)?.claims || {}
+    const emailVerified = Boolean(claims?.email_verified)
+    if (process.env.NODE_ENV === 'production' && !emailVerified) return { error: 'אייער אימעיל איז נאך נישט באַשטעטיגט. ביטע וועריפיצירט.' }
+
+    // Ensure an RDS user row exists (used for app data ownership).
+    let user =
+      (await prisma.user
+        .findUnique({ where: { email: emailNorm }, select: { id: true, email: true, firstName: true, lastName: true, emailVerifiedAt: true } })
+        .catch(() => null)) || null
+    if (!user?.id) {
+      user =
+        (await prisma.user
+          .create({
+            data: {
+              email: emailNorm,
+              ...(claims?.given_name ? { firstName: String(claims.given_name).trim() } : {}),
+              ...(claims?.family_name ? { lastName: String(claims.family_name).trim() } : {}),
+              ...(emailVerified ? { emailVerifiedAt: new Date() } : {}),
+            } as any,
+            select: { id: true, email: true, firstName: true, lastName: true, emailVerifiedAt: true },
+          })
+          .catch(() => null)) || null
+    } else if (emailVerified && !user.emailVerifiedAt) {
+      user =
+        (await prisma.user
+          .update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() }, select: { id: true, email: true, firstName: true, lastName: true, emailVerifiedAt: true } })
+          .catch(() => null)) || user
+    }
+    if (!user?.id) return { error: 'א טעות איז פארגעקומען. פרובירט נאכאמאל אדער קאנטאקט סופּפּאָרט.' }
 
     createAuditLog(user.id, 'USER_LOGIN', 'auth', { email: user.email })
     return { success: true, user: { id: user.id, email: user.email } as any, nextAuthRequired: true }
@@ -74,62 +102,62 @@ export async function signUpAction(data: SignupInput) {
       return { error: 'אומגילטיגע דאטן', details: validation.error.errors }
     }
 
-    // AWS RDS signup:
-    // - Creates or upgrades a user row in Postgres (`users` table via Prisma).
-    // - Password is stored as bcrypt hash in `password_hash`.
-    // - Email verification is handled via OTP routes (also stored in Postgres).
+    // AWS Cognito signup:
+    // - Creates the identity in Cognito User Pool (Cognito sends the verification code email).
+    // - Mirrors a local user row in AWS RDS Postgres (Prisma) for app data ownership.
     const email = String(validation.data.email || '').trim().toLowerCase()
     const firstName = String(validation.data.firstName || '').trim()
     const lastName = String(validation.data.lastName || '').trim()
     const phone = String(validation.data.phone || '').trim()
+    const password = String(validation.data.password || '')
 
-    // Hash password (bcrypt) - supported by `verifyPassword()` in `lib/auth.ts`.
-    const bcrypt = (await import('bcryptjs')).default
-    const passwordHash = await bcrypt.hash(String(validation.data.password || ''), 12)
+    const created = await callCognitoBoto3('sign_up', {
+      email,
+      password,
+      first_name: firstName,
+      last_name: lastName,
+      phone,
+    })
+    if (!created.ok) return { error: toYiddishError(String((created as any)?.error_code || (created as any)?.error || '')) }
 
-    let user = await prisma.user
-      .findUnique({ where: { email }, select: { id: true, email: true, passwordHash: true, emailVerifiedAt: true } })
-      .catch(() => null)
-
-    if (user?.passwordHash) {
-      return { error: 'דער אימעיל איז שוין רעגיסטרירט. ביטע נוצט לאגין.' }
-    }
-
-    if (!user?.id) {
-      user = await prisma.user.create({
-        data: { email, firstName, lastName, phone, passwordHash },
-        select: { id: true, email: true, passwordHash: true, emailVerifiedAt: true },
-      })
-    } else {
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: { firstName, lastName, phone, passwordHash },
-        select: { id: true, email: true, passwordHash: true, emailVerifiedAt: true },
-      })
-    }
-
-    createAuditLog(user.id, 'USER_SIGNUP', 'auth', { email })
-
-    // Trigger OTP immediately (server-side, best-effort) so users get the email even if they forget to click.
+    // Best-effort mirror to RDS (Prisma). Do not block Cognito signup if DB is temporarily unavailable.
+    let user: { id: string; email: string } | null = null
     try {
-      const h = await headers()
-      const host = h.get('x-forwarded-host') || h.get('host') || 'localhost:3000'
-      const proto = h.get('x-forwarded-proto') || 'http'
-      const base = `${proto}://${host}`
-      await fetch(`${base}/api/auth/otp/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, purpose: 'signup' }),
-        cache: 'no-store',
-      })
+      const existing =
+        (await prisma.user
+          .findUnique({ where: { email }, select: { id: true, email: true } })
+          .catch(() => null)) || null
+
+      if (!existing?.id) {
+        user =
+          (await prisma.user
+            .create({
+              data: { email, firstName, lastName, phone } as any,
+              select: { id: true, email: true },
+            })
+            .catch(() => null)) || null
+      } else {
+        user =
+          (await prisma.user
+            .update({
+              where: { id: existing.id },
+              data: { firstName, lastName, phone } as any,
+              select: { id: true, email: true },
+            })
+            .catch(() => null)) || { id: existing.id, email: existing.email || email }
+      }
     } catch {
-      // ignore
+      user = null
+    }
+
+    if (user?.id) {
+      createAuditLog(user.id, 'USER_SIGNUP', 'auth', { email })
     }
 
     return {
       success: true,
-      user: { id: user.id, email: user.email } as any,
-      needsVerification: !user.emailVerifiedAt,
+      user: user?.id ? ({ id: user.id, email: user.email } as any) : ({ id: `cognito:${email}`, email } as any),
+      needsVerification: true,
       autoLogin: false,
     }
   } catch (error: any) {

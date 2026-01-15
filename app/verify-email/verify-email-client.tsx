@@ -18,6 +18,7 @@ export default function VerifyEmailClient() {
   const [working, setWorking] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string>('')
 
+  const codeIsValid = useMemo(() => /^\d{6}$/.test(String(code || '').trim().replace(/\s+/g, '')), [code])
 
   useEffect(() => {
     // Prefill email when provided (lets users verify without being logged in yet).
@@ -35,7 +36,7 @@ export default function VerifyEmailClient() {
         setStatus('error')
         return
       }
-      if (c.length < 4) {
+      if (!/^\d{6}$/.test(c)) {
         setStatus('error')
         return
       }
@@ -47,7 +48,7 @@ export default function VerifyEmailClient() {
       }
       setWorking(true)
       setErrorMsg('')
-      // Primary: verify using Unity Credit OTP (Resend-backed).
+      // Verify using Cognito's emailed confirmation code.
       const resp = await fetch('/api/auth/otp/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -89,7 +90,7 @@ export default function VerifyEmailClient() {
 
       setWorking(true)
       setErrorMsg('')
-      // Primary: send Unity Credit OTP via Resend queue.
+      // Ask Cognito to resend the confirmation code email.
       const resp = await fetch('/api/auth/otp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -193,7 +194,7 @@ export default function VerifyEmailClient() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <div className="text-sm font-semibold text-primary rtl-text">קאָד (OTP)</div>
+                    <div className="text-sm font-semibold text-primary rtl-text">6-ציפערן קאָד (OTP)</div>
                     <Input
                       value={code}
                       onChange={(e) => setCode(e.target.value)}
@@ -205,7 +206,7 @@ export default function VerifyEmailClient() {
                     />
                   </div>
 
-                  <Button onClick={verifyFromCode} className="w-full h-11 font-semibold" disabled={working}>
+                  <Button onClick={verifyFromCode} className="w-full h-11 font-semibold" disabled={working || !codeIsValid}>
                     {working ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     <span className="rtl-text">וועריפיצירן</span>
                   </Button>

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { verifyPassword } from '@/lib/auth'
 import { loginFlexibleSchema } from '@/lib/validations'
 import { enforceRateLimit, enforceRateLimitKeyed } from '@/lib/server-rate-limit'
+import { callCognitoBoto3 } from '@/lib/aws/cognito-boto3'
 
 export const runtime = 'nodejs'
 
@@ -42,29 +43,90 @@ export async function POST(request: NextRequest) {
 
     const isEmail = identifier.includes('@')
 
-    // 1) App users in `users` table (Prisma model `User`) by email.
+  // 1) Primary: Cognito User Pool users by email.
+  // This endpoint is "back-compat" (does not establish a NextAuth browser session), but it should
+  // still validate credentials against Cognito to match the Unity Credit login flow.
     if (isEmail) {
-      const user = await prisma.user.findUnique({
-        where: { email: identifier },
-        select: { id: true, email: true, passwordHash: true, emailVerifiedAt: true },
-      })
-      if (!user?.id || !user.passwordHash) {
-        return NextResponse.json({ error: toYiddishError('Invalid') }, { status: 401, headers: { ...rlIp.headers, ...rlId.headers } })
+    const cog = await callCognitoBoto3<{ claims?: any }>('initiate_auth', { email: identifier, password })
+    if (!cog.ok) {
+      const code = String((cog as any)?.error_code || '')
+      if (code === 'UserNotConfirmedException') {
+        return NextResponse.json(
+          { error: toYiddishError('EMAIL_NOT_VERIFIED'), error_code: 'EMAIL_NOT_VERIFIED' },
+          { status: 403, headers: { ...rlIp.headers, ...rlId.headers } }
+        )
       }
-
-      if (process.env.NODE_ENV === 'production' && !user.emailVerifiedAt) {
-        return NextResponse.json({ error: toYiddishError('EMAIL_NOT_VERIFIED') }, { status: 403, headers: { ...rlIp.headers, ...rlId.headers } })
-      }
-
-      const ok = await verifyPassword(password, user.passwordHash)
-      if (!ok) {
-        return NextResponse.json({ error: toYiddishError('Invalid') }, { status: 401, headers: { ...rlIp.headers, ...rlId.headers } })
-      }
-
+      // Do not leak internal Cognito errors as "wrong password".
       return NextResponse.json(
-        { ok: true, user: { id: user.id, email: user.email } },
-        { status: 200, headers: { ...rlIp.headers, ...rlId.headers, 'Cache-Control': 'no-store' } }
+        { error: toYiddishError('Invalid'), error_code: code || 'COGNITO_AUTH_FAILED' },
+        { status: 401, headers: { ...rlIp.headers, ...rlId.headers } }
       )
+    }
+
+    const claims = (cog as any)?.claims || {}
+    const emailVerified = Boolean(claims?.email_verified)
+    if (process.env.NODE_ENV === 'production' && !emailVerified) {
+      return NextResponse.json(
+        { error: toYiddishError('EMAIL_NOT_VERIFIED'), error_code: 'EMAIL_NOT_VERIFIED' },
+        { status: 403, headers: { ...rlIp.headers, ...rlId.headers } }
+      )
+    }
+
+    const firstName = String(claims?.given_name || '').trim() || null
+    const lastName = String(claims?.family_name || '').trim() || null
+    const phone = String(claims?.phone_number || '').trim() || null
+
+    // Ensure the internal user row exists in RDS for app data ownership.
+    let user =
+      (await prisma.user
+        .findUnique({
+          where: { email: identifier },
+          select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
+        })
+        .catch(() => null)) || null
+
+    if (!user?.id) {
+      user =
+        (await prisma.user
+          .create({
+            data: {
+              email: identifier,
+              ...(firstName ? { firstName } : {}),
+              ...(lastName ? { lastName } : {}),
+              ...(phone ? { phone } : {}),
+              ...(emailVerified ? { emailVerifiedAt: new Date() } : {}),
+            } as any,
+            select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
+          })
+          .catch(() => null)) || null
+    } else {
+      const needsUpdate =
+        (emailVerified && !user.emailVerifiedAt) || (!user.firstName && firstName) || (!user.lastName && lastName) || (!user.phone && phone)
+      if (needsUpdate) {
+        user =
+          (await prisma.user
+            .update({
+              where: { id: user.id },
+              data: {
+                ...(emailVerified && !user.emailVerifiedAt ? { emailVerifiedAt: new Date() } : {}),
+                ...(!user.firstName && firstName ? { firstName } : {}),
+                ...(!user.lastName && lastName ? { lastName } : {}),
+                ...(!user.phone && phone ? { phone } : {}),
+              } as any,
+              select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
+            })
+            .catch(() => null)) || user
+      }
+    }
+
+    if (!user?.id) {
+      return NextResponse.json({ error: toYiddishError('Invalid') }, { status: 401, headers: { ...rlIp.headers, ...rlId.headers } })
+    }
+
+    return NextResponse.json(
+      { ok: true, user: { id: user.id, email: user.email || identifier } },
+      { status: 200, headers: { ...rlIp.headers, ...rlId.headers, 'Cache-Control': 'no-store' } }
+    )
     }
 
     // 2) Admin/legacy users in `unity_users` table by username (seeded by `create_admin.py`).

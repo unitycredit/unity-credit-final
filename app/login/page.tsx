@@ -205,10 +205,10 @@ export default function LoginPage() {
           <div className="flex justify-center mb-4">
             <UnityCreditBrandStack
               size="md"
-              label="UnityCredit"
+              label="Unity Credit"
               className="text-white"
               textClassName="text-white"
-              aria-label="UnityCredit"
+              aria-label="Unity Credit"
             />
           </div>
           <p className="text-gold text-xl font-semibold mb-1 text-center">Secure sign-in</p>

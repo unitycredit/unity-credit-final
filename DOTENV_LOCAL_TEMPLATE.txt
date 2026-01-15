@@ -72,8 +72,8 @@ EMAIL_WORKER_CONCURRENCY=10
 
 # --- AWS Cognito (User Pool auth) ---
 AWS_COGNITO_REGION=us-east-2
-AWS_COGNITO_USER_POOL_ID=us-east-2_atuluWVF3
-AWS_COGNITO_APP_CLIENT_ID=6r06meo1ijmc17tg3va663boan
+AWS_COGNITO_USER_POOL_ID=us-east-2_fJhZFZ8ms
+AWS_COGNITO_APP_CLIENT_ID=52r69v50idofp9r4l44p3d03g9
 # Optional: if Windows needs a specific Python launcher for boto3 helper, set:
 # UC_PYTHON=py
 # UC_PYTHON_ARGS=-3

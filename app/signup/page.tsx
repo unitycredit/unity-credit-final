@@ -68,30 +68,6 @@ export default function SignupPage() {
   }
 
   const passwordStrength = getPasswordStrength(passwordValue || '')
-  const [emailOtpSending, setEmailOtpSending] = useState(false)
-  const [emailOtpSent, setEmailOtpSent] = useState(false)
-  const [emailOtpCode, setEmailOtpCode] = useState<string>('')
-  const [emailOtpVerifying, setEmailOtpVerifying] = useState(false)
-  const [emailVerified, setEmailVerified] = useState(false)
-  const [emailForOtp, setEmailForOtp] = useState<string>('')
-  const [emailOtpError, setEmailOtpError] = useState<string>('')
-
-  const normEmail = (v: any) => String(v || '').trim().toLowerCase()
-  const enforceOtp = process.env.NODE_ENV === 'production'
-
-  // Reset OTP state if email changes.
-  useEffect(() => {
-    const e = normEmail(emailValue)
-    if (!e || e !== normEmail(emailForOtp)) {
-      setEmailOtpSent(false)
-      setEmailOtpCode('')
-      setEmailOtpVerifying(false)
-      setEmailVerified(false)
-      setEmailForOtp(e)
-      setEmailOtpError('')
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emailValue])
 
   useEffect(() => {
     try {
@@ -105,15 +81,6 @@ export default function SignupPage() {
 
   const onSubmit = async (data: SignupInput) => {
     setSignupError('')
-
-    // Production: require email OTP verification before creating the account.
-    const e = normEmail((data as any)?.email)
-    if (enforceOtp && e && e.includes('@') && !emailVerified) {
-      const msg = 'ביטע דריקט "שיק קאד צו אימעיל" און וועריפיצירט דעם 6־ציפער קאָד.'
-      setSignupError(msg)
-      toast({ title: 'וועריפיקאציע פארלאנגט', description: msg, variant: 'destructive' })
-      return
-    }
 
     const result = await signUpAction(data)
 
@@ -143,93 +110,8 @@ export default function SignupPage() {
         router.push('/dashboard')
         router.refresh()
       } else {
-        // If the user already verified email via OTP on this page, don't force a second verification step.
-        if (emailVerified) {
-          router.push(`/login?email=${encodeURIComponent(String(data.email || '').trim())}&verified=1`)
-        } else {
-          router.push(`/verify-email?email=${encodeURIComponent(String(data.email || '').trim())}`)
-        }
+        router.push(`/verify-email?email=${encodeURIComponent(String(data.email || '').trim())}`)
       }
-    }
-  }
-
-  async function sendEmailCodeNow(email: string) {
-    const e = normEmail(email)
-    if (!e || !e.includes('@')) return
-    if (emailOtpSending) return
-
-    setEmailOtpSending(true)
-    setEmailOtpError('')
-    try {
-      const resp = await fetch('/api/auth/otp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: e, purpose: 'signup' }),
-      })
-      const json = await resp.json().catch(() => ({}))
-      if (!resp.ok || !json?.ok) {
-        throw new Error(String(json?.error || 'א טעות איז פארגעקומען. פרובירט נאכאמאל.'))
-      }
-
-      setEmailOtpSent(true)
-      setEmailVerified(false)
-      setEmailOtpCode('')
-      toast({
-        title: 'קאָד געשיקט',
-        description:
-          json?.debug_code && process.env.NODE_ENV !== 'production'
-            ? `DEV: קאָד: ${String(json.debug_code)}`
-            : 'מיר האבן געשיקט א קאָד צו אייער אימעיל. ביטע שרייבט אים אריין אונטן.',
-      })
-    } catch (err: any) {
-      setEmailOtpError(err?.message || 'קאָד איז נישט געשיקט')
-      toast({
-        title: 'קאָד איז נישט געשיקט',
-        description: err?.message || 'א טעות איז פארגעקומען. פרובירט נאכאמאל.',
-        variant: 'destructive',
-      })
-    } finally {
-      setEmailOtpSending(false)
-    }
-  }
-
-  async function verifyEmailCodeNow() {
-    const e = normEmail(emailValue)
-    const c = String(emailOtpCode || '').trim().replace(/\s+/g, '')
-    if (!e || !e.includes('@')) return
-    if (c.length !== 6) {
-      setEmailOtpError('ביטע שרייבט אריין א 6־ציפער קאָד.')
-      return
-    }
-    if (emailOtpVerifying) return
-    setEmailOtpVerifying(true)
-    setEmailOtpError('')
-    try {
-      const resp = await fetch('/api/auth/otp/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: e, code: c, purpose: 'signup' }),
-      })
-      const json = await resp.json().catch(() => ({}))
-      if (!resp.ok || !json?.ok) {
-        throw new Error(String(json?.error || 'אומגילטיגער קאָד אדער דער קאָד איז אויסגעגאנגען.'))
-      }
-
-      setEmailVerified(true)
-      toast({
-        title: 'אימעיל וועריפיצירט',
-        description: 'אייער אימעיל איז הצלחה וועריפיצירט.',
-      })
-    } catch (err: any) {
-      setEmailVerified(false)
-      setEmailOtpError(err?.message || 'אומגילטיגער קאָד אדער דער קאָד איז אויסגעגאנגען.')
-      toast({
-        title: 'וועריפיקאציע נישט געלונגען',
-        description: err?.message || 'אומגילטיגער קאָד אדער דער קאָד איז אויסגעגאנגען.',
-        variant: 'destructive',
-      })
-    } finally {
-      setEmailOtpVerifying(false)
     }
   }
 
@@ -241,10 +123,10 @@ export default function SignupPage() {
           <div className="flex justify-center mb-4">
             <UnityCreditBrandStack
               size="lg"
-              label="UnityCredit"
+              label="Unity Credit"
               className="text-white"
               textClassName="text-white"
-              aria-label="UnityCredit"
+              aria-label="Unity Credit"
             />
           </div>
           <p className="text-gold text-sm font-semibold">Email verification required</p>
@@ -326,87 +208,34 @@ export default function SignupPage() {
                   <Mail className="text-gold" size={16} />
                   אימעיל *
                 </Label>
-                <div className="flex gap-2 items-stretch">
-                  <div className="relative flex-1">
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="שרייב אייער אימעיל"
-                      dir="rtl"
-                      {...register('email')}
-                      className={`h-12 border-2 transition-all pr-10 ${
-                        errors.email 
-                          ? 'border-destructive focus:border-destructive' 
-                          : emailValue && !errors.email
-                          ? 'border-green-500 focus:border-green-500'
-                          : 'border-gray-200 focus:border-gold focus:ring-2 focus:ring-gold/20'
-                      }`}
-                    />
-                    {emailValue && !errors.email && (
-                      <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
-                        <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
-                          <span className="text-white text-xs">✓</span>
-                        </div>
+                <div className="relative">
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="שרייב אייער אימעיל"
+                    dir="rtl"
+                    {...register('email')}
+                    className={`h-12 border-2 transition-all pr-10 ${
+                      errors.email
+                        ? 'border-destructive focus:border-destructive'
+                        : emailValue && !errors.email
+                        ? 'border-green-500 focus:border-green-500'
+                        : 'border-gray-200 focus:border-gold focus:ring-2 focus:ring-gold/20'
+                    }`}
+                  />
+                  {emailValue && !errors.email && (
+                    <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
+                      <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+                        <span className="text-white text-xs">✓</span>
                       </div>
-                    )}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-12 border-gold text-gold hover:bg-gold hover:text-primary"
-                    onClick={() => sendEmailCodeNow(String(emailValue || ''))}
-                    disabled={emailOtpSending || !emailValue || !!errors.email}
-                  >
-                    {emailOtpSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    <span className="rtl-text">שיק קאד צו אימעיל</span>
-                  </Button>
+                    </div>
+                  )}
                 </div>
                 {errors.email && (
                   <p className="text-sm text-destructive rtl-text flex items-center gap-1">
                     <AlertCircle size={14} />
                     {errors.email.message}
                   </p>
-                )}
-
-                {/* Code input (ONLY after clicking "send code") */}
-                {emailOtpSent && (
-                  <div className="rounded-lg border border-gold/20 bg-gold/5 p-4 space-y-3">
-                    <div className="rtl-text text-sm font-semibold text-primary">קאָד פון אימעיל</div>
-                    <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-center">
-                      <Input
-                        value={emailOtpCode}
-                        onChange={(e) => setEmailOtpCode(String(e.target.value || '').replace(/\\D/g, '').slice(0, 6))}
-                        placeholder="123456"
-                        dir="ltr"
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        className={`h-11 tracking-widest border-2 ${emailOtpError ? 'border-destructive' : 'border-gray-200'}`}
-                        disabled={emailOtpVerifying}
-                      />
-                      <Button
-                        type="button"
-                        onClick={verifyEmailCodeNow}
-                        className="h-11"
-                        disabled={emailOtpVerifying || emailOtpCode.length !== 6}
-                      >
-                        {emailOtpVerifying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                        <span className="rtl-text">וועריפיצירן</span>
-                      </Button>
-                    </div>
-                    {emailVerified ? (
-                      <div className="text-xs text-emerald-700 rtl-text flex items-center gap-2">
-                        <CheckCircle2 className="text-emerald-700" size={14} />
-                        אימעיל איז וועריפיצירט
-                      </div>
-                    ) : emailOtpError ? (
-                      <div className="text-xs text-destructive rtl-text flex items-center gap-2">
-                        <AlertCircle className="text-destructive" size={14} />
-                        {emailOtpError}
-                      </div>
-                    ) : (
-                      <div className="text-xs text-muted-foreground rtl-text">שרייבט אריין דעם 6־ציפער קאָד וואס איר האט באקומען אין אימעיל.</div>
-                    )}
-                  </div>
                 )}
               </div>
 
