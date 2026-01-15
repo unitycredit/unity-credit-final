@@ -80,8 +80,14 @@ export const authOptions: NextAuthOptions = {
               throw new Error('EMAIL_NOT_VERIFIED')
             }
             if (code === 'NotAuthorizedException') return null
+            if (code === 'MissingAWSCredentials') {
+              throw new Error('COGNITO_MISSING_AWS_CREDS')
+            }
+            if (code === 'cognito_boto3_failed') {
+              throw new Error('COGNITO_HELPER_FAILED')
+            }
             // Fail closed (do not leak internal errors as "invalid password").
-            throw new Error('COGNITO_AUTH_FAILED')
+            throw new Error(code ? `COGNITO_${code}` : 'COGNITO_AUTH_FAILED')
           }
 
           const claims = (cog as any)?.claims || {}
@@ -97,53 +103,72 @@ export const authOptions: NextAuthOptions = {
           const phone = String(claims?.phone_number || '').trim() || null
 
           // Ensure user row exists in RDS (used as the internal user id across the app).
-          let dbUser =
-            (await prisma.user
-              .findUnique({
-                where: { email },
-                select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
-              })
-              .catch(() => null)) || null
+          // NOTE: Prisma can be misconfigured in some environments (e.g., missing DATABASE_URL).
+          // We want Cognito auth errors to remain clear, so we treat DB issues separately.
+          const hasDbEnv = Boolean(
+            String(process.env.DATABASE_URL || '').trim() || (String(process.env.DB_HOST || '').trim() && String(process.env.DB_PASSWORD || '').trim())
+          )
+          if (!hasDbEnv) {
+            // Allow auth to succeed (session is established), but DB-backed features may not work.
+            return { id: `cognito:${email}`, email }
+          }
 
-          if (!dbUser?.id) {
+          let dbUser: any = null
+          try {
             dbUser =
               (await prisma.user
-                .create({
-                  data: {
-                    email,
-                    ...(firstName ? { firstName } : {}),
-                    ...(lastName ? { lastName } : {}),
-                    ...(phone ? { phone } : {}),
-                    ...(emailVerified ? { emailVerifiedAt: new Date() } : {}),
-                  } as any,
+                .findUnique({
+                  where: { email },
                   select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
                 })
                 .catch(() => null)) || null
-          } else {
-            // Best-effort: keep profile fields fresh (only fill missing values).
-            const needsUpdate =
-              (emailVerified && !dbUser.emailVerifiedAt) ||
-              (!dbUser.firstName && firstName) ||
-              (!dbUser.lastName && lastName) ||
-              (!dbUser.phone && phone)
-            if (needsUpdate) {
+
+            if (!dbUser?.id) {
               dbUser =
                 (await prisma.user
-                  .update({
-                    where: { id: dbUser.id },
+                  .create({
                     data: {
-                      ...(emailVerified && !dbUser.emailVerifiedAt ? { emailVerifiedAt: new Date() } : {}),
-                      ...(!dbUser.firstName && firstName ? { firstName } : {}),
-                      ...(!dbUser.lastName && lastName ? { lastName } : {}),
-                      ...(!dbUser.phone && phone ? { phone } : {}),
+                      email,
+                      ...(firstName ? { firstName } : {}),
+                      ...(lastName ? { lastName } : {}),
+                      ...(phone ? { phone } : {}),
+                      ...(emailVerified ? { emailVerifiedAt: new Date() } : {}),
                     } as any,
                     select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
                   })
-                  .catch(() => null)) || dbUser
+                  .catch(() => null)) || null
+            } else {
+              // Best-effort: keep profile fields fresh (only fill missing values).
+              const needsUpdate =
+                (emailVerified && !dbUser.emailVerifiedAt) ||
+                (!dbUser.firstName && firstName) ||
+                (!dbUser.lastName && lastName) ||
+                (!dbUser.phone && phone)
+              if (needsUpdate) {
+                dbUser =
+                  (await prisma.user
+                    .update({
+                      where: { id: dbUser.id },
+                      data: {
+                        ...(emailVerified && !dbUser.emailVerifiedAt ? { emailVerifiedAt: new Date() } : {}),
+                        ...(!dbUser.firstName && firstName ? { firstName } : {}),
+                        ...(!dbUser.lastName && lastName ? { lastName } : {}),
+                        ...(!dbUser.phone && phone ? { phone } : {}),
+                      } as any,
+                      select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
+                    })
+                    .catch(() => null)) || dbUser
+              }
             }
+          } catch {
+            // Surface DB connectivity separately so the UI can show the right message.
+            throw new Error('DB_CONNECT_FAILED')
           }
 
-          if (!dbUser?.id) return null
+          if (!dbUser?.id) {
+            // If Cognito auth succeeded but DB row couldn't be created, treat as DB issue (not invalid credentials).
+            throw new Error('DB_CONNECT_FAILED')
+          }
 
           return {
             id: dbUser.id,

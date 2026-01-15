@@ -38,6 +38,13 @@ function shouldUseSsl(connectionString: string) {
     const sslmode = String(u.searchParams.get('sslmode') || '').toLowerCase()
     if (ssl === 'true' || ssl === '1') return true
     if (sslmode === 'require' || sslmode === 'verify-full' || sslmode === 'verify-ca') return true
+
+    // Sensible default: AWS RDS Postgres commonly requires/uses SSL.
+    // If you're connecting to an Amazon RDS endpoint and didn't explicitly disable SSL, enable it.
+    const host = String(u.hostname || '').toLowerCase()
+    if (host.endsWith('rds.amazonaws.com') || host.includes('.rds.amazonaws.com') || host.endsWith('amazonaws.com')) {
+      return true
+    }
   } catch {
     // ignore
   }

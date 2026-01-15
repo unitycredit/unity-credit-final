@@ -24,6 +24,9 @@ export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [signupError, setSignupError] = useState<string>('')
+  // Cognito signup flow: user creates account, then confirms via 6-digit email code on /verify-email.
+  // We always enforce this flow (no pre-submit gating).
+  const enforceOtp = true
   
   const {
     register,
@@ -129,7 +132,7 @@ export default function SignupPage() {
               aria-label="Unity Credit"
             />
           </div>
-          <p className="text-gold text-sm font-semibold">Email verification required</p>
+          <p className="text-gold text-sm font-semibold">{enforceOtp ? 'Email verification required' : 'Create your account'}</p>
         </div>
 
         <Card className="backdrop-blur-xl bg-white/95 shadow-2xl border-2 border-gold/20 animate-fade-in">
@@ -426,7 +429,7 @@ export default function SignupPage() {
               <Button
                 type="submit"
                 className="w-full h-12 bg-gradient-to-r from-gold to-gold-dark text-primary font-bold text-lg shadow-lg shadow-gold/30 hover:shadow-xl hover:shadow-gold/40 transition-all duration-300 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                disabled={isSubmitting || (enforceOtp && !emailVerified)}
+                disabled={isSubmitting}
               >
                 {isSubmitting ? (
                   <>

@@ -129,22 +129,24 @@ export async function signUpAction(data: SignupInput) {
           .catch(() => null)) || null
 
       if (!existing?.id) {
-        user =
+        const createdRow =
           (await prisma.user
             .create({
               data: { email, firstName, lastName, phone } as any,
               select: { id: true, email: true },
             })
             .catch(() => null)) || null
+        user = createdRow?.id ? { id: createdRow.id, email: createdRow.email || email } : null
       } else {
-        user =
+        const updatedRow =
           (await prisma.user
             .update({
               where: { id: existing.id },
               data: { firstName, lastName, phone } as any,
               select: { id: true, email: true },
             })
-            .catch(() => null)) || { id: existing.id, email: existing.email || email }
+            .catch(() => null)) || null
+        user = updatedRow?.id ? { id: updatedRow.id, email: updatedRow.email || email } : { id: existing.id, email: existing.email || email }
       }
     } catch {
       user = null

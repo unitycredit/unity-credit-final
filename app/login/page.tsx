@@ -176,6 +176,18 @@ export default function LoginPage() {
         }
         router.push(`/verify-email?email=${encodeURIComponent(identifier)}`)
         setLoginError('')
+      } else if (rawErr.includes('DB_CONNECT_FAILED')) {
+        errorMessage = 'עס איז דא א פראבלעם מיט דער דאַטאַבייס (RDS) פארבינדונג. ביטע פרובירט נאכאמאל אין א מינוט.'
+        setLoginError(errorMessage)
+      } else if (rawErr.includes('COGNITO_MISSING_AWS_CREDS')) {
+        errorMessage = 'סערוויר קאנפיגוראַציע טעות: פעלנדיגע AWS קרעדענשאַלס פאר Cognito. ביטע קאנטאקט סופּפּאָרט.'
+        setLoginError(errorMessage)
+      } else if (rawErr.includes('COGNITO_HELPER_FAILED')) {
+        errorMessage = 'סערוויר טעות: Cognito סערוויס איז נישט אוועקגעלייגט ריכטיג. ביטע פרובירט נאכאמאל.'
+        setLoginError(errorMessage)
+      } else if (rawErr.includes('COGNITO_') || rawErr.includes('COGNITO_AUTH_FAILED')) {
+        errorMessage = 'Cognito טעות. ביטע פרובירט נאכאמאל אדער קאנטאקט סופּפּאָרט.'
+        setLoginError(errorMessage)
       } else {
         setLoginError(errorMessage)
       }
