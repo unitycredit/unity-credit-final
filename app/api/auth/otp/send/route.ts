@@ -136,13 +136,13 @@ export async function POST(req: NextRequest) {
           queued: false,
           sent: false,
           debug_code: code,
-          warning: 'RESEND not configured; returning debug_code in dev.',
+          warning: 'SES not configured; returning debug_code in dev.',
         },
         { status: 200, headers: rl.headers }
       )
     }
     return NextResponse.json(
-      { error: 'אימעיל־סערוויס איז נישט קאנפיגורירט (RESEND_API_KEY/RESEND_FROM).' },
+      { error: 'אימעיל־סערוויס איז נישט קאנפיגורירט (SES_REGION/AWS_REGION + SES_FROM_EMAIL).' },
       { status: 500, headers: rl.headers }
     )
   }

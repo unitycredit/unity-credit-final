@@ -2,6 +2,7 @@ import { upstashCmd, upstashEnabled } from '@/lib/upstash'
 import { createHash, randomUUID } from 'node:crypto'
 import { createServerClient } from '@/lib/supabase'
 import { maintenanceMessageYi, readEmergencyControl } from '@/lib/emergency-control'
+import { sesConfig, sendSesEmail } from '@/lib/aws/ses'
 
 const EMAIL_QUEUE_KEY = 'uc:queue:email'
 
@@ -16,10 +17,10 @@ export type RawEmailJob = {
   meta?: Record<string, any>
 }
 
+// Back-compat export name: the app historically used Resend. We now route through AWS SES.
 export function resendConfig() {
-  const from = String(process.env.RESEND_FROM || '').trim()
-  const key = String(process.env.RESEND_API_KEY || '').trim()
-  return { from, key, ok: Boolean(from && key) }
+  const cfg = sesConfig()
+  return { from: cfg.fromEmail, key: '', ok: cfg.ok }
 }
 
 export function hashId(parts: string[]) {
@@ -31,30 +32,9 @@ export async function sendResendDirect(params: { to: string; subject: string; ht
   if (ec?.switches?.email_dispatch && ec.switches.email_dispatch.enabled === false) {
     throw new Error(maintenanceMessageYi())
   }
-  const cfg = resendConfig()
-  if (!cfg.ok) throw new Error('Email provider not configured (RESEND_API_KEY/RESEND_FROM).')
-
-  const ctrl = new AbortController()
-  const timeoutMs = Number(process.env.RESEND_TIMEOUT_MS || 8000)
-  const id = setTimeout(() => ctrl.abort(), Math.max(1000, timeoutMs))
-  const resp = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${cfg.key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: cfg.from,
-      to: [params.to],
-      subject: params.subject,
-      html: params.html || undefined,
-      text: params.text || undefined,
-    }),
-    signal: ctrl.signal,
-  }).finally(() => clearTimeout(id))
-  const json: any = await resp.json().catch(() => ({}))
-  if (!resp.ok) throw new Error(json?.message || `Resend HTTP ${resp.status}`)
-  return json
+  // SES send (uses IAM role / instance credentials in AWS; uses AWS_PROFILE locally).
+  const sent = await sendSesEmail(params)
+  return sent as any
 }
 
 export async function queueRawEmail(params: {
@@ -94,12 +74,12 @@ export async function queueRawEmail(params: {
         await admin.from('email_logs').upsert(
           {
             id: job.id,
-            provider: 'resend',
+            provider: 'ses',
             kind: String(job.meta?.kind || job.kind || 'raw'),
             to_email: job.to,
             subject: job.subject,
             status: 'sent',
-            resend_id: String((sent as any)?.id || (sent as any)?.data?.id || ''),
+            resend_id: String((sent as any)?.MessageId || ''),
             meta: job.meta || null,
             queued_at: new Date().toISOString(),
             sent_at: new Date().toISOString(),
@@ -121,7 +101,7 @@ export async function queueRawEmail(params: {
       await admin.from('email_logs').upsert(
         {
           id: job.id,
-          provider: 'resend',
+          provider: 'ses',
           kind: String(job.meta?.kind || job.kind || 'raw'),
           to_email: job.to,
           subject: job.subject,

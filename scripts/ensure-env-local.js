@@ -63,6 +63,11 @@ function main() {
       if (!/(^|\n)\s*NEXTAUTH_SECRET\s*=/.test(raw)) {
         console.warn('[env] Missing NEXTAUTH_SECRET in .env.local (required for stable login sessions in production).')
       }
+      const hasSesRegion = /(^|\n)\s*(SES_REGION|AWS_REGION)\s*=/.test(raw)
+      const hasSesFrom = /(^|\n)\s*SES_FROM_EMAIL\s*=/.test(raw)
+      if (!hasSesRegion || !hasSesFrom) {
+        console.warn('[env] Missing SES config in .env.local (SES_REGION/AWS_REGION + SES_FROM_EMAIL) for OTP emails.')
+      }
     } catch {
       // ignore
     }

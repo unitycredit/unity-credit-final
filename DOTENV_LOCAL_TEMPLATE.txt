@@ -62,9 +62,12 @@ PLAID_SECRET=
 # sandbox | development | production
 PLAID_ENV=sandbox
 
-# --- Email (Resend) ---
-RESEND_API_KEY=
-RESEND_FROM="Unity Credit <no-reply@yourdomain.com>"
+# --- Email (AWS SES) ---
+# Region where SES is enabled and identities are verified (usually same as your app).
+AWS_REGION=us-east-2
+SES_REGION=us-east-2
+# Must be a verified identity in SES (email address or domain).
+SES_FROM_EMAIL=no-reply@yourdomain.com
 EMAIL_WORKER_CONCURRENCY=10
 
 # --- Stripe Billing (Premium Trial → Subscription) ---
@@ -91,3 +94,7 @@ DB_PORT=5432
 DB_USER=postgres
 DB_PASSWORD=YOUR_PASSWORD
 DB_NAME=postgres
+
+# --- NextAuth (required) ---
+# Generate a strong secret (32+ bytes). In AWS, store this in Secrets Manager.
+NEXTAUTH_SECRET=change-me
