@@ -110,7 +110,13 @@ export const authOptions: NextAuthOptions = {
                 })
                 .catch(() => null)) || null
 
-            if (!dbUser?.id || !dbUser.passwordHash) return null
+            if (!dbUser?.id || !dbUser.passwordHash) {
+              if (authDebug) {
+                // eslint-disable-next-line no-console
+                console.warn('[AUTH] user not found or missing passwordHash', { email })
+              }
+              return null
+            }
 
             const requireVerified =
               process.env.NODE_ENV === 'production' && String(process.env.UC_REQUIRE_EMAIL_VERIFICATION || '').trim() !== 'false'
@@ -119,7 +125,13 @@ export const authOptions: NextAuthOptions = {
             }
 
             const ok = await verifyPassword(password, dbUser.passwordHash)
-            if (!ok) return null
+            if (!ok) {
+              if (authDebug) {
+                // eslint-disable-next-line no-console
+                console.warn('[AUTH] password mismatch (email login)', { email, hashPrefix: String(dbUser.passwordHash || '').slice(0, 20) })
+              }
+              return null
+            }
 
             return {
               id: dbUser.id,
@@ -154,7 +166,16 @@ export const authOptions: NextAuthOptions = {
         if (!admin?.id || !admin.is_active || !admin.hashed_password) return null
 
         const ok = await verifyPassword(password, admin.hashed_password)
-        if (!ok) return null
+        if (!ok) {
+          if (authDebug) {
+            // eslint-disable-next-line no-console
+            console.warn('[AUTH] password mismatch (unity_users login)', {
+              username: identifier,
+              hashPrefix: String(admin.hashed_password || '').slice(0, 20),
+            })
+          }
+          return null
+        }
 
         return {
           id: `unity:${admin.id}`,
