@@ -1,6 +1,8 @@
 import logging
 import os
 import sys
+import base64
+import getpass
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
@@ -36,6 +38,41 @@ def _is_placeholder_secret(value: str | None) -> bool:
         return True
     v = value.strip()
     return v == "YOUR_PASSWORD" or v == "change-me" or v.startswith("replace-")
+
+def _resolve_password_interactively_if_needed() -> None:
+    """
+    Ensure DB_PASSWORD is available.
+
+    Resolution order:
+    1) DB_PASSWORD (if non-placeholder)
+    2) DB_PASSWORD_B64 (base64-encoded UTF-8 password)
+    3) Interactive prompt (if running in a real terminal)
+    """
+    current = os.getenv("DB_PASSWORD")
+    if not _is_placeholder_secret(current):
+        return
+
+    b64 = os.getenv("DB_PASSWORD_B64")
+    if b64:
+        try:
+            decoded = base64.b64decode(b64).decode("utf-8")
+            if not _is_placeholder_secret(decoded):
+                os.environ["DB_PASSWORD"] = decoded
+                return
+        except Exception:
+            # fall through to prompt / error
+            pass
+
+    if sys.stdin is not None and sys.stdin.isatty():
+        pw = getpass.getpass("Enter DB_PASSWORD for AWS RDS: ")
+        if pw and not _is_placeholder_secret(pw):
+            os.environ["DB_PASSWORD"] = pw
+            return
+
+    raise RuntimeError(
+        "DB_PASSWORD is missing/placeholder and no interactive input is available. "
+        "Set DB_PASSWORD (or DB_PASSWORD_B64) and rerun."
+    )
 
 
 def get_database_url() -> str:
@@ -80,23 +117,15 @@ def test_connection() -> None:
     else:
         print("No .env/.env.local found; using process environment only.")
 
-    database_url = os.getenv("DATABASE_URL")
-    password = os.getenv("DB_PASSWORD")
+    database_url = os.getenv("DATABASE_URL") or ""
+    if "YOUR_PASSWORD" in database_url:
+        # Ignore placeholder DATABASE_URL and rely on DB_* pieces instead.
+        os.environ.pop("DATABASE_URL", None)
 
-    # Don't attempt a network connection with placeholder secrets.
-    if database_url and "YOUR_PASSWORD" in database_url:
-        print(
-            "DATABASE_URL still contains the placeholder 'YOUR_PASSWORD'.\n"
-            "Update your local .env/.env.local with the real password, then rerun:\n"
-            "  python database_setup.py"
-        )
-        sys.exit(2)
-    if _is_placeholder_secret(password):
-        print(
-            "DB_PASSWORD is missing or still a placeholder.\n"
-            "Set DB_PASSWORD (or DATABASE_URL) with your real AWS RDS password, then rerun:\n"
-            "  python database_setup.py"
-        )
+    try:
+        _resolve_password_interactively_if_needed()
+    except Exception as e:
+        print(str(e))
         sys.exit(2)
 
     try:
