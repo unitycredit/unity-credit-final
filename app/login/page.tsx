@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { loginSchema, type LoginInput } from '@/lib/validations'
+import { loginFlexibleSchema, type LoginFlexibleInput } from '@/lib/validations'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,8 +32,8 @@ export default function LoginPage() {
     setValue,
     formState: { errors, isSubmitting },
     watch,
-  } = useForm<LoginInput>({
-    resolver: zodResolver(loginSchema),
+  } = useForm<LoginFlexibleInput>({
+    resolver: zodResolver(loginFlexibleSchema),
     mode: 'onBlur', // Validate on blur for better UX
   })
 
@@ -96,14 +96,17 @@ export default function LoginPage() {
     router.replace('/dashboard')
   }
 
-  const onSubmit = async (data: LoginInput) => {
+  const onSubmit = async (data: LoginFlexibleInput) => {
     setLoginError('')
+    const identifier = String(data?.email || '').trim()
+    const sessionEmail =
+      identifier && identifier.includes('@') ? identifier : `${identifier.toLowerCase()}@unitycredit.local`
 
     // LOCAL AUTH BYPASS:
     // - Requested behavior: allow the login screen at http://localhost:3002 to work without any backend/auth response.
     // - Behavior: any Login submit immediately redirects to /dashboard and seeds a lightweight local session.
     if (isLocalAuthBypassEnabled()) {
-      const email = String(data.email || '').trim() || 'local@unitycredit.dev'
+      const email = identifier && identifier.includes('@') ? identifier : 'local@unitycredit.dev'
       try {
         document.cookie = 'uc_dev_bypass=1; path=/; max-age=3600; samesite=lax'
       } catch {
@@ -139,7 +142,7 @@ export default function LoginPage() {
     try {
       result = await signIn('credentials', {
         redirect: false,
-        email: String(data.email || '').trim(),
+        email: identifier,
         password: String(data.password || ''),
       })
     } catch (e: any) {
@@ -154,6 +157,11 @@ export default function LoginPage() {
       let errorMessage = 'אומגילטיגע אימעיל אדער פּאַראָל. ביטע פרובירט נאכאמאל.'
 
       if (rawErr.includes('EMAIL_NOT_VERIFIED')) {
+        if (!identifier.includes('@')) {
+          // Username-based login does not support email verification.
+          toast({ title: 'אַרײַנלאָגין איז נישט מצליח', description: errorMessage, variant: 'destructive' })
+          return
+        }
         errorMessage =
           'אייער אימעיל איז נאך נישט באַשטעטיגט. ביטע נעמט דעם קאָד (OTP) פון אייער אימעיל און וועריפיצירט.'
         // Best-effort: trigger OTP so the user actually receives a 6-digit code.
@@ -161,12 +169,12 @@ export default function LoginPage() {
           await fetch('/api/auth/otp/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: String(data.email || '').trim(), purpose: 'signup' }),
+            body: JSON.stringify({ email: identifier, purpose: 'signup' }),
           })
         } catch {
           // ignore
         }
-        router.push(`/verify-email?email=${encodeURIComponent(String(data.email || '').trim())}`)
+        router.push(`/verify-email?email=${encodeURIComponent(identifier)}`)
         setLoginError('')
       } else {
         setLoginError(errorMessage)
@@ -186,7 +194,7 @@ export default function LoginPage() {
     })
     router.push('/dashboard')
     router.refresh()
-    setLocalSession(String(data.email || '').trim())
+    setLocalSession(sessionEmail)
   }
 
   return (
@@ -228,13 +236,13 @@ export default function LoginPage() {
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-primary font-semibold rtl-text flex items-center gap-2">
                   <Mail className="text-gold" size={16} />
-                  {t('login.email')} *
+                  {t('login.email')} / Username *
                 </Label>
                 <div className="relative">
                   <Input
                     id="email"
-                    type="email"
-                    placeholder={t('login.email.placeholder')}
+                    type="text"
+                    placeholder={t('login.email.placeholder') || 'Email or username'}
                     dir="rtl"
                     {...register('email')}
                     className={`h-12 border-2 transition-all pr-10 bg-slate-800 text-white placeholder:text-white/60 ${

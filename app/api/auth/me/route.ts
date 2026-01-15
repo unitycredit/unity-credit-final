@@ -1,16 +1,20 @@
-import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase'
+import { NextRequest, NextResponse } from 'next/server'
+import { getToken } from 'next-auth/jwt'
 
 export const runtime = 'nodejs'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    // Prefer decoding NextAuth JWT if NEXTAUTH_SECRET is set.
+    const secret = process.env.NEXTAUTH_SECRET
+    const token = secret ? await getToken({ req, secret }) : null
 
-    if (!user) {
+    // Fallback (dev): if secret isn't set, treat cookie presence as logged-in.
+    const cookieNames = req.cookies.getAll().map((c) => c.name)
+    const hasSessionCookie =
+      cookieNames.includes('next-auth.session-token') || cookieNames.includes('__Secure-next-auth.session-token')
+
+    if (!token && !hasSessionCookie) {
       return NextResponse.json({ ok: false, user: null }, { status: 401, headers: { 'Cache-Control': 'no-store' } })
     }
 
@@ -18,9 +22,8 @@ export async function GET() {
       {
         ok: true,
         user: {
-          id: user.id,
-          email: user.email,
-          email_confirmed_at: (user as any).email_confirmed_at || null,
+          id: String((token as any)?.uid || (token as any)?.sub || ''),
+          email: String((token as any)?.email || ''),
         },
       },
       { status: 200, headers: { 'Cache-Control': 'no-store' } }

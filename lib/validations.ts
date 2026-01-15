@@ -121,6 +121,27 @@ export const loginSchema = z.object({
     .min(6, "פאסווארט מוז זיין מינימום 6 אותיות"),
 })
 
+// Login Schema (RDS / Credentials): allow either email OR username.
+// Kept separate because other parts of the app still use Supabase email-only auth.
+export const loginFlexibleSchema = z.object({
+  email: z
+    .string()
+    .min(1, "אימעיל אדער באניצער־נאמען איז פארלאנגט")
+    .trim()
+    .refine(
+      (v) => {
+        const raw = String(v || '').trim()
+        const lower = raw.toLowerCase()
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        if (lower.includes('@')) return emailRegex.test(lower)
+        // Username: letters/numbers plus common safe separators.
+        return /^[A-Za-z0-9_.-]{2,150}$/.test(raw)
+      },
+      { message: "ביטע שרייב אריין א גילטיגע אימעיל אדער באניצער־נאמען" }
+    ),
+  password: z.string().min(1, "פאסווארט איז פארלאנגט").min(6, "פאסווארט מוז זיין מינימום 6 אותיות"),
+})
+
 // Professional advice question schema
 export const adviceQuestionSchema = z.object({
   question: z.string()
@@ -132,5 +153,6 @@ export const adviceQuestionSchema = z.object({
 export type CreditCardInput = z.infer<typeof creditCardSchema>
 export type SignupInput = z.infer<typeof signupSchema>
 export type LoginInput = z.infer<typeof loginSchema>
+export type LoginFlexibleInput = z.infer<typeof loginFlexibleSchema>
 export type AdviceQuestionInput = z.infer<typeof adviceQuestionSchema>
 

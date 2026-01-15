@@ -96,11 +96,7 @@ export async function middleware(_request: NextRequest) {
     res.headers.set('Cache-Control', 'no-store, private')
   }
 
-  // TEMP (requested): disable ALL auth redirects so the app can be browsed without login.
-  // This bypasses the Supabase session cookie gate for /dashboard, /settings, /premium, etc.
-  return res
-
-  // Route protection (Supabase session)
+  // Route protection (session cookie presence; server routes/pages verify auth for real).
   const protect =
     pathname === '/dashboard' ||
     pathname.startsWith('/dashboard/') ||
@@ -137,6 +133,9 @@ export async function middleware(_request: NextRequest) {
   // Edge-safe auth gate: cookie presence only (server-side routes/pages verify auth for real).
   const cookieNames = _request.cookies.getAll().map((c) => c.name)
   const hasSessionCookie =
+    // NextAuth (JWT strategy)
+    cookieNames.some((n) => n === 'next-auth.session-token' || n === '__Secure-next-auth.session-token') ||
+    // Back-compat: Supabase session cookies (if still present in some environments)
     cookieNames.some((n) => n === 'sb-access-token' || n === 'sb-refresh-token') ||
     cookieNames.some((n) => n.startsWith('sb-') && n.endsWith('-auth-token'))
 
@@ -156,12 +155,12 @@ export async function middleware(_request: NextRequest) {
     })
   }
   const timedBypass = devTimedBypassEnabled && (bypassCookie === '1' || wantsBypassCookie)
-  const hasSupabaseEnv = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+  const hasAnyAuthEnv = Boolean(process.env.NEXTAUTH_SECRET) || Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
 
   // DEV OVERRIDE:
   // User requested direct entry without auth. Disable ONLY the redirect-to-/login gate in dev/local.
   // (Emergency controls/referral capture/admin noindex remain active.)
-  if (protect && !devBypass && !timedBypass && hasSupabaseEnv) {
+  if (protect && !devBypass && !timedBypass && hasAnyAuthEnv) {
     if (!hasSessionCookie) {
       const login = new URL('/login', url)
       login.searchParams.set('next', pathname)

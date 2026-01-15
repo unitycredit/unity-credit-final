@@ -1,13 +1,15 @@
 'use server'
 
-import { createClient } from '@/lib/supabase'
-import { createServerClient } from '@/lib/supabase'
+import { createClient, createServerClient } from '@/lib/supabase'
 import { loginSchema, signupSchema, type LoginInput, type SignupInput } from '@/lib/validations'
 import { createAuditLog } from '@/lib/security'
 import { headers } from 'next/headers'
 import { getSupabaseRuntimeConfig } from '@/lib/runtime-env'
 import { enforceRateLimitKeyed } from '@/lib/server-rate-limit'
 import { createHash } from 'node:crypto'
+import { cookies } from 'next/headers'
+import { prisma } from '@/lib/prisma'
+import { verifyPassword } from '@/lib/auth'
 
 const toYiddishError = (msg: string) => {
   const text = msg || ''
@@ -45,63 +47,21 @@ export async function signInAction(data: LoginInput) {
       // fail open (auth availability > perfect limiting)
     }
 
-    // Dev fallback: allow the app to function without Supabase credentials.
-    // This does NOT create a real session; it simply lets the UI proceed in guest/demo mode.
-    const cfg = getSupabaseRuntimeConfig()
-    if (process.env.NODE_ENV !== 'production' && (!cfg.url || !cfg.anonKey)) {
-      return {
-        success: true,
-        demo: true,
-        user: {
-          id: 'dev-demo',
-          email: validation.data.email,
-          email_confirmed_at: new Date().toISOString(),
-        } as any,
-      }
-    }
-
-    const supabase = await createClient()
-    const { data: authData, error } = await supabase.auth.signInWithPassword({
-      email: validation.data.email,
-      password: validation.data.password,
+    // NOTE:
+    // Server Actions cannot easily establish a NextAuth browser session (it requires the NextAuth callback flow + CSRF).
+    // This action therefore only validates credentials against AWS RDS Postgres.
+    const emailNorm = String(validation.data.email || '').trim().toLowerCase()
+    const user = await prisma.user.findUnique({
+      where: { email: emailNorm },
+      select: { id: true, email: true, passwordHash: true, emailVerifiedAt: true },
     })
+    if (!user?.id || !user.passwordHash) return { error: 'אומגילטיגע אימעיל אדער פאסווארט. פרובירט נאכאמאל.' }
+    if (process.env.NODE_ENV === 'production' && !user.emailVerifiedAt) return { error: 'אייער אימעיל איז נאך נישט וועריפיצירט. ביטע טשעקט אייער אימעיל.' }
+    const ok = await verifyPassword(String(validation.data.password || ''), user.passwordHash)
+    if (!ok) return { error: 'אומגילטיגע אימעיל אדער פאסווארט. פרובירט נאכאמאל.' }
 
-    if (error) return { error: toYiddishError(error.message) }
-
-    if (authData.user) {
-      createAuditLog(authData.user.id, 'USER_LOGIN', 'auth', { email: validation.data.email })
-    }
-
-    // Dev convenience: if the only blocker is email confirmation, auto-confirm (service-role) and retry sign-in.
-    // This fixes the common case: signup succeeded but login is blocked by the confirmation gate.
-    if (authData.user && !authData.user.email_confirmed_at) {
-      const isDev = process.env.NODE_ENV !== 'production'
-      if (isDev && cfg.serviceRoleKey) {
-        try {
-          const admin = createServerClient()
-          const lookup = await admin
-            .from('users')
-            .select('id')
-            .ilike('email', String(validation.data.email || '').trim().toLowerCase())
-            .maybeSingle()
-          const userId = (lookup as any)?.data?.id || null
-          if (userId) {
-            await admin.auth.admin.updateUserById(userId, { email_confirm: true } as any)
-            const second = await supabase.auth.signInWithPassword({
-              email: validation.data.email,
-              password: validation.data.password,
-            })
-            if (second.error) return { error: toYiddishError(second.error.message) }
-            if (second.data?.user) return { success: true, user: second.data.user, autoConfirmed: true }
-          }
-        } catch {
-          // fall through to standard gate
-        }
-      }
-      return { error: 'אייער אימעיל איז נאך נישט וועריפיצירט. ביטע טשעקט אייער אימעיל.', user: authData.user }
-    }
-
-    return { success: true, user: authData.user }
+    createAuditLog(user.id, 'USER_LOGIN', 'auth', { email: user.email })
+    return { success: true, user: { id: user.id, email: user.email } as any, nextAuthRequired: true }
   } catch (error: any) {
     return { error: toYiddishError(error?.message) }
   }
@@ -279,9 +239,10 @@ export async function signUpAction(data: SignupInput) {
 
 export async function signOutAction() {
   try {
-    const supabase = await createClient()
-    const { error } = await supabase.auth.signOut()
-    if (error) return { error: toYiddishError(error.message) }
+    // Clear NextAuth session cookies (JWT strategy).
+    const jar = await cookies()
+    jar.set('next-auth.session-token', '', { path: '/', maxAge: 0 })
+    jar.set('__Secure-next-auth.session-token', '', { path: '/', maxAge: 0 })
     return { success: true }
   } catch (error: any) {
     return { error: toYiddishError(error?.message) }

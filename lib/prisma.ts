@@ -21,7 +21,27 @@ function createPrismaClient() {
   })
 }
 
-export const prisma: PrismaClient = globalThis.__UC_PRISMA__ || createPrismaClient()
+function prismaStub(err: unknown): PrismaClient {
+  const e = err instanceof Error ? err : new Error(String(err || 'Prisma not configured'))
+  return new Proxy({} as PrismaClient, {
+    get() {
+      throw e
+    },
+    set() {
+      throw e
+    },
+  })
+}
 
-if (process.env.NODE_ENV !== 'production') globalThis.__UC_PRISMA__ = prisma
+let resolved: PrismaClient
+try {
+  resolved = globalThis.__UC_PRISMA__ || createPrismaClient()
+  if (process.env.NODE_ENV !== 'production') globalThis.__UC_PRISMA__ = resolved
+} catch (e) {
+  // Important for Next.js builds: route modules can be imported during `next build`.
+  // We defer failing until runtime (first actual DB usage).
+  resolved = prismaStub(e)
+}
+
+export const prisma: PrismaClient = resolved
 

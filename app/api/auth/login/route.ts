@@ -1,110 +1,103 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { createServerClient as createServiceRoleClient } from '@/lib/supabase'
-import { loginSchema } from '@/lib/validations'
-import { getSupabaseRuntimeConfig } from '@/lib/runtime-env'
-import { enforceRateLimit, enforceRateLimitKeyed } from '@/lib/server-rate-limit'
 import { createHash } from 'node:crypto'
+import { prisma } from '@/lib/prisma'
+import { verifyPassword } from '@/lib/auth'
+import { loginFlexibleSchema } from '@/lib/validations'
+import { enforceRateLimit, enforceRateLimitKeyed } from '@/lib/server-rate-limit'
+
+export const runtime = 'nodejs'
 
 const toYiddishError = (msg: string) => {
-  if (msg.includes('Invalid login credentials') || msg.includes('Invalid email or password')) return 'אומגילטיגע אימעיל אדער פאסווארט. פרובירט נאכאמאל.'
-  if (msg.includes('Email not confirmed')) return 'אייער אימעיל איז נאך נישט וועריפיצירט. ביטע טשעקט אייער אימעיל.'
+  if (msg.includes('EMAIL_NOT_VERIFIED')) return 'אייער אימעיל איז נאך נישט באַשטעטיגט. ביטע וועריפיצירט.'
   if (msg.includes('Too many requests')) return 'צו פיל פראבען. ביטע ווארט א ביסל און פרובירט ווידער.'
-  return 'א טעות איז פארגעקומען. פרובירט נאכאמאל.'
+  return 'אומגילטיגע דעטאלן. פרובירט נאכאמאל.'
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // Brute force protection: rate-limit login attempts (IP + email).
+    // Brute force protection: rate-limit login attempts (IP + identifier).
     const rlIp = await enforceRateLimit(request, 'LOGIN_ATTEMPTS')
     if (!rlIp.allowed) {
       return NextResponse.json({ error: toYiddishError('Too many requests') }, { status: 429, headers: rlIp.headers })
     }
 
-    const cfg = getSupabaseRuntimeConfig()
-    const supabaseUrl = String(cfg.url || '').trim()
-    const anonKey = String(cfg.anonKey || '').trim()
-    if (!supabaseUrl || !anonKey) {
-      return NextResponse.json({ error: 'Missing Supabase keys.' }, { status: 500 })
-    }
-
-    // IMPORTANT:
-    // - Supabase passwords are NOT decryptable (they are hashed by GoTrue).
-    // - If you need to encrypt app-owned secrets, use `@/lib/vault`, not for passwords.
-    //
-    // This route exists for clients that prefer an API call instead of a server action.
-    // We MUST use @supabase/ssr here so auth cookies are set on the response.
-    // IMPORTANT: Supabase writes cookies during `signInWithPassword()`.
-    // We buffer cookie ops and apply them to the final response we return.
-    const cookieOps: Array<{ type: 'set' | 'remove'; name: string; value?: string; options?: any }> = []
-    const supabase = createServerClient(supabaseUrl, anonKey, {
-      cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value
-        },
-        set(name: string, value: string, options: any) {
-          cookieOps.push({ type: 'set', name, value, options })
-        },
-        remove(name: string, options: any) {
-          cookieOps.push({ type: 'remove', name, options })
-        },
-      },
-    })
-
-    const body = await request.json()
-    const validation = loginSchema.safeParse(body)
+    const body = await request.json().catch(() => ({} as any))
+    const validation = loginFlexibleSchema.safeParse(body)
     if (!validation.success) {
       return NextResponse.json({ error: 'אומגילטיגע דאטן', details: validation.error.errors }, { status: 400 })
     }
 
-    const { email, password } = validation.data
-    const eh = createHash('sha256').update(String(email || '').trim().toLowerCase()).digest('hex').slice(0, 32)
-    const rlEmail = await enforceRateLimitKeyed(request, 'LOGIN_ATTEMPTS_EMAIL', eh)
-    if (!rlEmail.allowed) {
-      return NextResponse.json({ error: toYiddishError('Too many requests') }, { status: 429, headers: { ...rlIp.headers, ...rlEmail.headers } })
-    }
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    const identifierRaw = String(validation.data.email || '').trim()
+    const identifier = identifierRaw.toLowerCase()
+    const password = String(validation.data.password || '')
 
-    if (error) {
-      return NextResponse.json({ error: toYiddishError(error.message) }, { status: 401, headers: { ...rlIp.headers, ...rlEmail.headers } })
+    const ih = createHash('sha256').update(identifier).digest('hex').slice(0, 32)
+    const rlId = await enforceRateLimitKeyed(request, 'LOGIN_ATTEMPTS_EMAIL', ih)
+    if (!rlId.allowed) {
+      return NextResponse.json(
+        { error: toYiddishError('Too many requests') },
+        { status: 429, headers: { ...rlIp.headers, ...rlId.headers } }
+      )
     }
 
-    if (data.user && !data.user.email_confirmed_at) {
-      // Dev convenience: auto-confirm then retry login (keeps production strict).
-      if (process.env.NODE_ENV !== 'production' && cfg.serviceRoleKey) {
-        try {
-          const admin = createServiceRoleClient()
-          const lookup = await admin.from('users').select('id').ilike('email', String(email || '').trim().toLowerCase()).maybeSingle()
-          const userId = (lookup as any)?.data?.id || null
-          if (userId) {
-            await admin.auth.admin.updateUserById(userId, { email_confirm: true } as any)
-            const second = await supabase.auth.signInWithPassword({ email, password })
-            if (second.error) return NextResponse.json({ error: toYiddishError(second.error.message) }, { status: 401 })
-            if (second.data?.user && !second.data.user.email_confirmed_at) {
-              return NextResponse.json({ error: toYiddishError('Email not confirmed') }, { status: 403 })
-            }
-            // success continues below (cookieOps already captured)
-          }
-        } catch {
-          // fall through to strict gate
-        }
+    const isEmail = identifier.includes('@')
+
+    // 1) App users in `users` table (Prisma model `User`) by email.
+    if (isEmail) {
+      const user = await prisma.user.findUnique({
+        where: { email: identifier },
+        select: { id: true, email: true, passwordHash: true, emailVerifiedAt: true },
+      })
+      if (!user?.id || !user.passwordHash) {
+        return NextResponse.json({ error: toYiddishError('Invalid') }, { status: 401, headers: { ...rlIp.headers, ...rlId.headers } })
       }
-      return NextResponse.json({ error: toYiddishError('Email not confirmed') }, { status: 403 })
+
+      if (process.env.NODE_ENV === 'production' && !user.emailVerifiedAt) {
+        return NextResponse.json({ error: toYiddishError('EMAIL_NOT_VERIFIED') }, { status: 403, headers: { ...rlIp.headers, ...rlId.headers } })
+      }
+
+      const ok = await verifyPassword(password, user.passwordHash)
+      if (!ok) {
+        return NextResponse.json({ error: toYiddishError('Invalid') }, { status: 401, headers: { ...rlIp.headers, ...rlId.headers } })
+      }
+
+      return NextResponse.json(
+        { ok: true, user: { id: user.id, email: user.email } },
+        { status: 200, headers: { ...rlIp.headers, ...rlId.headers, 'Cache-Control': 'no-store' } }
+      )
     }
 
-    // Successful login: return 200 and ensure cookies were set on the response.
-    const response = NextResponse.json({ ok: true, user: data.user }, { status: 200, headers: { ...rlIp.headers, ...rlEmail.headers } })
-    for (const op of cookieOps) {
-      if (op.type === 'set') {
-        response.cookies.set({ name: op.name, value: String(op.value || ''), ...(op.options || {}) })
-      } else {
-        response.cookies.set({ name: op.name, value: '', ...(op.options || {}), maxAge: 0 })
-      }
+    // 2) Admin/legacy users in `unity_users` table by username (seeded by `create_admin.py`).
+    let rows: Array<{ id: number; username: string; hashed_password: string; is_active: boolean }> = []
+    try {
+      rows = await prisma.$queryRaw<
+        Array<{ id: number; username: string; hashed_password: string; is_active: boolean }>
+      >`select id, username, hashed_password, is_active from unity_users where lower(username) = ${identifier} limit 1`
+    } catch {
+      // Table may not exist in some environments; treat as invalid credentials.
+      return NextResponse.json({ error: toYiddishError('Invalid') }, { status: 401, headers: { ...rlIp.headers, ...rlId.headers } })
     }
-    return response
+    const admin = rows?.[0]
+    if (!admin?.id || !admin.is_active || !admin.hashed_password) {
+      return NextResponse.json({ error: toYiddishError('Invalid') }, { status: 401, headers: { ...rlIp.headers, ...rlId.headers } })
+    }
+
+    const ok = await verifyPassword(password, admin.hashed_password)
+    if (!ok) {
+      return NextResponse.json({ error: toYiddishError('Invalid') }, { status: 401, headers: { ...rlIp.headers, ...rlId.headers } })
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        user: {
+          id: `unity:${admin.id}`,
+          username: admin.username,
+          email: `${String(admin.username || 'admin').toLowerCase()}@unitycredit.local`,
+        },
+      },
+      { status: 200, headers: { ...rlIp.headers, ...rlId.headers, 'Cache-Control': 'no-store' } }
+    )
   } catch (error: any) {
     return NextResponse.json({ error: toYiddishError(error?.message || '') }, { status: 500 })
   }
