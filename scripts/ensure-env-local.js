@@ -30,14 +30,105 @@ function write(p, content) {
   fs.writeFileSync(p, content, 'utf8')
 }
 
+function parseEnv(raw) {
+  const out = {}
+  String(raw || '')
+    .split(/\r?\n/g)
+    .forEach((line) => {
+      const s = String(line || '').trim()
+      if (!s || s.startsWith('#')) return
+      const idx = s.indexOf('=')
+      if (idx <= 0) return
+      const key = s.slice(0, idx).trim()
+      let value = s.slice(idx + 1)
+      // Remove surrounding quotes (best-effort).
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1)
+      }
+      out[key] = value
+    })
+  return out
+}
+
+function isPlaceholderValue(v) {
+  const s = String(v || '')
+  return (
+    !s ||
+    s.includes('YOUR_PASSWORD') ||
+    s.includes('PASTE_') ||
+    s.includes('replace-') ||
+    s.includes('change-me') ||
+    s.includes('pk_test_') ||
+    s.includes('sk_test_')
+  )
+}
+
 function main() {
   const root = process.cwd()
   const envLocal = path.join(root, '.env.local')
+  const envDot = path.join(root, '.env')
   if (exists(envLocal)) {
     // Best-effort validation (no secrets printed):
     // remind devs to configure AWS RDS / NextAuth when `.env.local` exists but is incomplete.
     try {
-      const raw = read(envLocal)
+      let raw = read(envLocal)
+      // If a developer put real creds in `.env` (common), `.env.local` takes precedence in Next.js
+      // and can accidentally override those values with placeholders. We sync missing keys from `.env`
+      // into `.env.local` (local-only file) without printing secrets.
+      try {
+        if (exists(envDot)) {
+          const localMap = parseEnv(raw)
+          const dotMap = parseEnv(read(envDot))
+          const keysToSync = [
+            // DB (RDS)
+            'DATABASE_URL',
+            'DB_HOST',
+            'DB_PORT',
+            'DB_USER',
+            'DB_PASSWORD',
+            'DB_NAME',
+            'PGSSLMODE',
+            'DB_SSL',
+            // NextAuth
+            'NEXTAUTH_SECRET',
+            'NEXTAUTH_URL',
+            // Cognito (IDs are safe; credentials still should not be committed)
+            'AWS_REGION',
+            'AWS_COGNITO_REGION',
+            'AWS_COGNITO_USER_POOL_ID',
+            'AWS_COGNITO_APP_CLIENT_ID',
+            // boto3 credentials (dev only; prefer IAM roles in prod)
+            'AWS_ACCESS_KEY_ID',
+            'AWS_SECRET_ACCESS_KEY',
+            'AWS_SESSION_TOKEN',
+          ]
+
+          const lines = []
+          for (const k of keysToSync) {
+            const hasLocal = Object.prototype.hasOwnProperty.call(localMap, k)
+            const localVal = hasLocal ? localMap[k] : ''
+            const dotVal = dotMap[k]
+            if (!dotVal) continue
+            // Sync if missing or placeholder.
+            if (!hasLocal || isPlaceholderValue(localVal)) {
+              lines.push(`${k}=${dotVal}`)
+            }
+          }
+
+          if (lines.length) {
+            raw =
+              raw.replace(/\s+$/g, '') +
+              `\n\n# Synced from .env by scripts/ensure-env-local.js (${new Date().toISOString()})\n` +
+              lines.join('\n') +
+              '\n'
+            write(envLocal, raw)
+            console.log(`[env] Synced ${lines.length} keys from .env -> .env.local (local-only).`)
+          }
+        }
+      } catch {
+        // ignore sync failures
+      }
+
       const hasDbUrl = /(^|\n)\s*DATABASE_URL\s*=/.test(raw)
       const hasDbPieces = /(^|\n)\s*DB_HOST\s*=/.test(raw) && /(^|\n)\s*DB_PASSWORD\s*=/.test(raw)
       const looksPlaceholder =

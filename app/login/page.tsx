@@ -179,6 +179,9 @@ export default function LoginPage() {
       } else if (rawErr.includes('DB_CONNECT_FAILED')) {
         errorMessage = 'עס איז דא א פראבלעם מיט דער דאַטאַבייס (RDS) פארבינדונג. ביטע פרובירט נאכאמאל אין א מינוט.'
         setLoginError(errorMessage)
+      } else if (rawErr.includes('DB_NOT_CONFIGURED')) {
+        errorMessage = 'סערוויר קאנפיגוראַציע טעות: דאַטאַבייס (RDS) איז נישט קאנפיגורירט. ביטע קאנטאקט סופּפּאָרט.'
+        setLoginError(errorMessage)
       } else if (rawErr.includes('COGNITO_MISSING_AWS_CREDS')) {
         errorMessage = 'סערוויר קאנפיגוראַציע טעות: פעלנדיגע AWS קרעדענשאַלס פאר Cognito. ביטע קאנטאקט סופּפּאָרט.'
         setLoginError(errorMessage)

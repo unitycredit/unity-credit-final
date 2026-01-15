@@ -51,6 +51,7 @@ export async function verifyPassword(password: string, storedHash: string): Prom
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: 'jwt' },
+  debug: process.env.NODE_ENV !== 'production',
   pages: {
     signIn: '/login',
   },
@@ -69,13 +70,35 @@ export const authOptions: NextAuthOptions = {
         if (!identifier || password.length < 1) return null
 
         const isEmail = identifier.includes('@')
+        const authDebug = process.env.NODE_ENV !== 'production' || String(process.env.UC_AUTH_DEBUG || '').trim() === 'true'
 
         // 1) Primary: Cognito User Pool auth (email/password). We keep a local user row in RDS for app data ownership.
         if (isEmail) {
           const email = identifier
+          const hasDbEnv = Boolean(
+            String(process.env.DATABASE_URL || '').trim() || (String(process.env.DB_HOST || '').trim() && String(process.env.DB_PASSWORD || '').trim())
+          )
+          if (authDebug) {
+            // eslint-disable-next-line no-console
+            console.log('[AUTH] credentials email login attempt', {
+              email,
+              hasDbEnv,
+              hasNextAuthSecret: Boolean(String(process.env.NEXTAUTH_SECRET || '').trim()),
+            })
+          }
+
           const cog = await callCognitoBoto3<{ claims?: any }>('initiate_auth', { email, password })
           if (!cog.ok) {
             const code = String((cog as any)?.error_code || '')
+            if (authDebug) {
+              // eslint-disable-next-line no-console
+              console.error('[AUTH] Cognito auth failed', {
+                email,
+                error_code: code || null,
+                status: (cog as any)?.status || null,
+                error: String((cog as any)?.error || '').slice(0, 200) || null,
+              })
+            }
             if (code === 'UserNotConfirmedException') {
               throw new Error('EMAIL_NOT_VERIFIED')
             }
@@ -103,14 +126,12 @@ export const authOptions: NextAuthOptions = {
           const phone = String(claims?.phone_number || '').trim() || null
 
           // Ensure user row exists in RDS (used as the internal user id across the app).
-          // NOTE: Prisma can be misconfigured in some environments (e.g., missing DATABASE_URL).
-          // We want Cognito auth errors to remain clear, so we treat DB issues separately.
-          const hasDbEnv = Boolean(
-            String(process.env.DATABASE_URL || '').trim() || (String(process.env.DB_HOST || '').trim() && String(process.env.DB_PASSWORD || '').trim())
-          )
           if (!hasDbEnv) {
-            // Allow auth to succeed (session is established), but DB-backed features may not work.
-            return { id: `cognito:${email}`, email }
+            if (authDebug) {
+              // eslint-disable-next-line no-console
+              console.error('[AUTH] Missing DB env; refusing login because Unity Credit requires RDS user row', { email })
+            }
+            throw new Error('DB_NOT_CONFIGURED')
           }
 
           let dbUser: any = null
@@ -162,11 +183,19 @@ export const authOptions: NextAuthOptions = {
             }
           } catch {
             // Surface DB connectivity separately so the UI can show the right message.
+            if (authDebug) {
+              // eslint-disable-next-line no-console
+              console.error('[AUTH] RDS/Prisma operation failed (exception)', { email })
+            }
             throw new Error('DB_CONNECT_FAILED')
           }
 
           if (!dbUser?.id) {
             // If Cognito auth succeeded but DB row couldn't be created, treat as DB issue (not invalid credentials).
+            if (authDebug) {
+              // eslint-disable-next-line no-console
+              console.error('[AUTH] RDS user row missing after Cognito auth', { email })
+            }
             throw new Error('DB_CONNECT_FAILED')
           }
 
