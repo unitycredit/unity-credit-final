@@ -75,6 +75,24 @@ def _resolve_password_interactively_if_needed() -> None:
     )
 
 
+def get_engine_from_env():
+    """
+    Load local env vars (if present), ensure a real DB password exists, and return a SQLAlchemy engine.
+
+    Returns:
+      (engine, loaded_files)
+    """
+    loaded_files = _load_env()
+
+    database_url = os.getenv("DATABASE_URL") or ""
+    if "YOUR_PASSWORD" in database_url:
+        # Ignore placeholder DATABASE_URL and rely on DB_* pieces instead.
+        os.environ.pop("DATABASE_URL", None)
+
+    _resolve_password_interactively_if_needed()
+    return create_db_engine(), loaded_files
+
+
 def get_database_url() -> str:
     """
     Resolve DATABASE_URL, or construct one from DB_* pieces.
@@ -111,25 +129,18 @@ def create_db_engine():
 
 
 def test_connection() -> None:
-    loaded_files = _load_env()
+    try:
+        engine, loaded_files = get_engine_from_env()
+    except Exception as e:
+        print(str(e))
+        sys.exit(2)
+
     if loaded_files:
         print(f"Loaded env from: {', '.join(loaded_files)}")
     else:
         print("No .env/.env.local found; using process environment only.")
 
-    database_url = os.getenv("DATABASE_URL") or ""
-    if "YOUR_PASSWORD" in database_url:
-        # Ignore placeholder DATABASE_URL and rely on DB_* pieces instead.
-        os.environ.pop("DATABASE_URL", None)
-
     try:
-        _resolve_password_interactively_if_needed()
-    except Exception as e:
-        print(str(e))
-        sys.exit(2)
-
-    try:
-        engine = create_db_engine()
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         print("Connection Successful")
