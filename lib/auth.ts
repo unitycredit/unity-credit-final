@@ -3,6 +3,7 @@ import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { pbkdf2Sync, timingSafeEqual } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
+import { callCognitoBoto3 } from '@/lib/aws/cognito-boto3'
 
 function normEmail(email: unknown) {
   return String(email || '').trim().toLowerCase()
@@ -69,36 +70,85 @@ export const authOptions: NextAuthOptions = {
 
         const isEmail = identifier.includes('@')
 
-        // 1) Primary: app users in Postgres `users` table (Prisma model `User`) by email.
+        // 1) Primary: Cognito User Pool auth (email/password). We keep a local user row in RDS for app data ownership.
         if (isEmail) {
           const email = identifier
-          const user = await prisma.user.findUnique({
-            where: { email },
-            select: {
-              id: true,
-              email: true,
-              firstName: true,
-              lastName: true,
-              passwordHash: true,
-              emailVerifiedAt: true,
-            },
-          })
+          const cog = await callCognitoBoto3<{ claims?: any }>('initiate_auth', { email, password })
+          if (!cog.ok) {
+            const code = String((cog as any)?.error_code || '')
+            if (code === 'UserNotConfirmedException') {
+              throw new Error('EMAIL_NOT_VERIFIED')
+            }
+            if (code === 'NotAuthorizedException') return null
+            // Fail closed (do not leak internal errors as "invalid password").
+            throw new Error('COGNITO_AUTH_FAILED')
+          }
 
-          if (!user?.id || !user.passwordHash) return null
+          const claims = (cog as any)?.claims || {}
+          const emailVerified = Boolean(claims?.email_verified)
 
-          // Production gate: require email verification before allowing sign-in.
-          if (process.env.NODE_ENV === 'production' && !user.emailVerifiedAt) {
-            // Allows the client to show a specific UX (OTP verification) instead of "invalid credentials".
+          // Production gate: require Cognito email verification before allowing sign-in.
+          if (process.env.NODE_ENV === 'production' && !emailVerified) {
             throw new Error('EMAIL_NOT_VERIFIED')
           }
 
-          const ok = await verifyPassword(password, user.passwordHash)
-          if (!ok) return null
+          const firstName = String(claims?.given_name || '').trim() || null
+          const lastName = String(claims?.family_name || '').trim() || null
+          const phone = String(claims?.phone_number || '').trim() || null
+
+          // Ensure user row exists in RDS (used as the internal user id across the app).
+          let dbUser =
+            (await prisma.user
+              .findUnique({
+                where: { email },
+                select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
+              })
+              .catch(() => null)) || null
+
+          if (!dbUser?.id) {
+            dbUser =
+              (await prisma.user
+                .create({
+                  data: {
+                    email,
+                    ...(firstName ? { firstName } : {}),
+                    ...(lastName ? { lastName } : {}),
+                    ...(phone ? { phone } : {}),
+                    ...(emailVerified ? { emailVerifiedAt: new Date() } : {}),
+                  } as any,
+                  select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
+                })
+                .catch(() => null)) || null
+          } else {
+            // Best-effort: keep profile fields fresh (only fill missing values).
+            const needsUpdate =
+              (emailVerified && !dbUser.emailVerifiedAt) ||
+              (!dbUser.firstName && firstName) ||
+              (!dbUser.lastName && lastName) ||
+              (!dbUser.phone && phone)
+            if (needsUpdate) {
+              dbUser =
+                (await prisma.user
+                  .update({
+                    where: { id: dbUser.id },
+                    data: {
+                      ...(emailVerified && !dbUser.emailVerifiedAt ? { emailVerifiedAt: new Date() } : {}),
+                      ...(!dbUser.firstName && firstName ? { firstName } : {}),
+                      ...(!dbUser.lastName && lastName ? { lastName } : {}),
+                      ...(!dbUser.phone && phone ? { phone } : {}),
+                    } as any,
+                    select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
+                  })
+                  .catch(() => null)) || dbUser
+            }
+          }
+
+          if (!dbUser?.id) return null
 
           return {
-            id: user.id,
-            email: user.email,
-            name: [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || undefined,
+            id: dbUser.id,
+            email: dbUser.email || email,
+            name: [dbUser.firstName, dbUser.lastName].filter(Boolean).join(' ').trim() || undefined,
           }
         }
 
