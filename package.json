@@ -19,6 +19,8 @@
     "sales-accelerator:worker": "node scripts/sales-accelerator-worker.js"
   },
   "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.969.0",
+    "@aws-sdk/client-sesv2": "^3.969.0",
     "@hookform/resolvers": "^3.3.4",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",
@@ -59,6 +61,7 @@
     "@babel/parser": "^7.28.5",
     "@types/express": "^5.0.6",
     "@types/node": "^20.19.27",
+    "@types/pg": "^8.16.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.16",

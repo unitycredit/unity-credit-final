@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Unity Credit — Login</title>
+    <style>
+      :root {
+        --uc-blue: #003366;
+        --uc-blue-2: #0b4a8f;
+        --text: #0f172a;
+        --muted: #64748b;
+        --border: rgba(15, 23, 42, 0.10);
+        --shadow: 0 20px 60px rgba(0, 0, 0, 0.22);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        color: var(--text);
+        background:
+          radial-gradient(900px 500px at 15% 10%, rgba(11, 74, 143, 0.22), transparent 65%),
+          radial-gradient(900px 500px at 90% 40%, rgba(0, 51, 102, 0.22), transparent 60%),
+          linear-gradient(140deg, #0a2342 0%, var(--uc-blue) 40%, #03172a 100%);
+        display: grid;
+        place-items: center;
+        padding: 28px 16px;
+      }
+
+      .shell {
+        width: min(440px, 100%);
+      }
+
+      .brandbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: #eaf2ff;
+        margin-bottom: 14px;
+      }
+
+      .logo {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(145deg, rgba(255,255,255,0.18), rgba(255,255,255,0.06));
+        border: 1px solid rgba(255,255,255,0.18);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+        font-weight: 800;
+        letter-spacing: 0.5px;
+      }
+
+      .brandtext .name {
+        font-weight: 700;
+        font-size: 16px;
+        line-height: 1.2;
+      }
+      .brandtext .tag {
+        font-size: 13px;
+        color: rgba(234, 242, 255, 0.78);
+      }
+
+      .card {
+        background: #ffffff;
+        border: 1px solid rgba(255,255,255,0.22);
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .cardHeader {
+        padding: 22px 22px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      .cardHeader h1 {
+        margin: 0;
+        font-size: 20px;
+        letter-spacing: -0.2px;
+      }
+      .cardHeader p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 13.5px;
+        line-height: 1.4;
+      }
+
+      form {
+        padding: 18px 22px 22px;
+      }
+
+      .field {
+        margin-top: 12px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        color: #1f2937;
+        margin-bottom: 6px;
+      }
+
+      .input {
+        width: 100%;
+        height: 44px;
+        border-radius: 12px;
+        border: 1px solid rgba(15, 23, 42, 0.14);
+        padding: 0 12px;
+        font-size: 14px;
+        outline: none;
+        transition: border-color 150ms ease, box-shadow 150ms ease;
+        background: #ffffff;
+      }
+      .input:focus {
+        border-color: rgba(0, 51, 102, 0.55);
+        box-shadow: 0 0 0 4px rgba(0, 51, 102, 0.12);
+      }
+
+      .actions {
+        margin-top: 16px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .btn {
+        height: 46px;
+        width: 100%;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        font-weight: 700;
+        font-size: 14px;
+        color: #ffffff;
+        background: linear-gradient(135deg, var(--uc-blue) 0%, var(--uc-blue-2) 100%);
+        box-shadow: 0 10px 24px rgba(0, 51, 102, 0.28);
+        transition: transform 120ms ease, box-shadow 180ms ease, filter 180ms ease;
+      }
+      .btn:hover {
+        box-shadow:
+          0 14px 32px rgba(0, 51, 102, 0.36),
+          0 0 18px rgba(11, 74, 143, 0.30);
+        filter: brightness(1.03);
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+
+      .footnote {
+        margin-top: 10px;
+        font-size: 12.5px;
+        color: var(--muted);
+        text-align: center;
+      }
+      .footnote a {
+        color: var(--uc-blue);
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .footnote a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="brandbar" aria-label="Unity Credit">
+        <div class="logo" aria-hidden="true">UC</div>
+        <div class="brandtext">
+          <div class="name">Unity Credit</div>
+          <div class="tag">Secure access to your dashboard</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cardHeader">
+          <h1>Sign in</h1>
+          <p>Enter your credentials to continue.</p>
+        </div>
+
+        <form method="post" action="/login" autocomplete="on">
+          <div class="field">
+            <label for="username">Username</label>
+            <input class="input" id="username" name="username" type="text" placeholder="admin" required />
+          </div>
+
+          <div class="field">
+            <label for="password">Password</label>
+            <input class="input" id="password" name="password" type="password" placeholder="••••••••••" required />
+          </div>
+
+          <div class="actions">
+            <button class="btn" type="submit">Login</button>
+          </div>
+
+          <div class="footnote">
+            <span>Logo placeholder only • Replace with your brand asset</span>
+          </div>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>

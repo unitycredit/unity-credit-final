@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sanitizeInput } from '@/lib/security'
 import { enforceRateLimit, enforceRateLimitKeyed } from '@/lib/server-rate-limit'
-import { otpEmail } from '@/lib/email-templates'
-import { resendConfig, sendResendDirect } from '@/lib/email-queue'
 import { prisma } from '@/lib/prisma'
-import { createHash, randomInt } from 'node:crypto'
+import { createHash } from 'node:crypto'
+import { callCognitoBoto3 } from '@/lib/aws/cognito-boto3'
 
 export const runtime = 'nodejs'
-
-const OTP_TTL_SECONDS = 10 * 60
-const OTP_QUEUE_DEDUPE_SECONDS = 60
 
 function normalizeEmail(email: string) {
   return String(email || '').trim().toLowerCase()
@@ -21,14 +17,6 @@ function isValidEmail(email: string) {
 
 function emailHash(email: string) {
   return createHash('sha256').update(normalizeEmail(email)).digest('hex').slice(0, 32)
-}
-
-function makeCode() {
-  return String(randomInt(0, 1_000_000)).padStart(6, '0')
-}
-
-function hashOtp(code: string, salt: string) {
-  return createHash('sha256').update(`${salt}|${code}`).digest('hex')
 }
 
 export async function POST(req: NextRequest) {
@@ -57,112 +45,31 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const now = Date.now()
-  const resend = resendConfig()
-
-  // Throttle: do not issue more than 1 OTP per minute per email+purpose.
-  try {
-    const recent = await prisma.emailOtp.findFirst({
-      where: { emailHash: eh, purpose },
-      orderBy: { createdAt: 'desc' },
-      select: { createdAt: true },
-    })
-    const lastCreatedAt = recent?.createdAt ? recent.createdAt.getTime() : 0
-    if (lastCreatedAt && now - lastCreatedAt < OTP_QUEUE_DEDUPE_SECONDS * 1000) {
-      return NextResponse.json({ ok: true, queued: false, reason: 'throttled' }, { status: 200, headers: rl.headers })
-    }
-  } catch {
-    // ignore throttling errors (fail open)
-  }
-
-  // Ensure a user row exists (placeholder is fine until full signup completes).
+  // Ensure a user row exists in RDS (placeholder is fine until full signup completes).
   const normalized = normalizeEmail(email)
   const user =
     (await prisma.user.findUnique({ where: { email: normalized }, select: { id: true } }).catch(() => null)) ||
     null
-  const userId =
-    user?.id ||
-    (await prisma.user
-      .create({
-        data: {
-          email: normalized,
-        },
-        select: { id: true },
-      })
-      .then((u) => u.id)
-      .catch(() => null))
-
-  if (!userId) {
-    // Keep response generic (do not leak existence/state).
-    return NextResponse.json({ ok: true, queued: false }, { status: 200, headers: rl.headers })
-  }
-
-  const code = makeCode()
-  const salt = String(randomInt(100_000, 9_999_999))
-  const codeHash = hashOtp(code, salt)
-  const expiresAt = new Date(now + OTP_TTL_SECONDS * 1000)
-
-  // Store OTP (consume any previous active OTPs for this email+purpose).
   try {
-    await prisma.$transaction([
-      prisma.emailOtp.updateMany({
-        where: { emailHash: eh, purpose, consumedAt: null },
-        data: { consumedAt: new Date() },
-      }),
-      prisma.emailOtp.create({
-        data: {
-          userId,
-          email: normalized,
-          emailHash: eh,
-          purpose,
-          salt,
-          codeHash,
-          expiresAt,
-        },
-      }),
-    ])
+    if (!user?.id) {
+      await prisma.user.create({ data: { email: normalized } as any, select: { id: true } }).catch(() => null)
+    }
   } catch {
-    return NextResponse.json({ error: 'א טעות איז פארגעקומען. פרובירט נאכאמאל.' }, { status: 500, headers: rl.headers })
+    // ignore (do not block resend)
   }
 
-  const emailContent = otpEmail({ code, minutesValid: Math.round(OTP_TTL_SECONDS / 60) })
-
-  // If email provider isn't configured, still allow dev flows to proceed by returning a debug code.
-  if (!resend.ok) {
-    if (process.env.NODE_ENV !== 'production') {
+  try {
+    // Cognito will send the confirmation code via its configured email sender (Cognito/SES).
+    const resp = await callCognitoBoto3('resend_confirmation_code', { email: normalized })
+    if (!resp.ok) {
+      const msg = String((resp as any)?.error || 'Failed to resend code')
       return NextResponse.json(
-        {
-          ok: true,
-          queued: false,
-          sent: false,
-          debug_code: code,
-          warning: 'SES not configured; returning debug_code in dev.',
-        },
-        { status: 200, headers: rl.headers }
+        { ok: false, error: msg, error_code: (resp as any)?.error_code || 'cognito_resend_failed' },
+        { status: Number((resp as any)?.status || 502), headers: { ...rl.headers, ...rlEmail.headers } }
       )
     }
     return NextResponse.json(
-      { error: 'אימעיל־סערוויס איז נישט קאנפיגורירט (SES_REGION/AWS_REGION + SES_FROM_EMAIL).' },
-      { status: 500, headers: rl.headers }
-    )
-  }
-
-  try {
-    await sendResendDirect({
-      to: normalized,
-      subject: emailContent.subject,
-      text: emailContent.text,
-      html: emailContent.html,
-    })
-    return NextResponse.json(
-      {
-        ok: true,
-        queued: false,
-        sent: true,
-        expires_at: expiresAt.toISOString(),
-        ttl_seconds: OTP_TTL_SECONDS,
-        via: 'direct',
-      },
+      { ok: true, sent: true, via: 'cognito', code_delivery: (resp as any)?.code_delivery || null },
       { status: 200, headers: { ...rl.headers, ...rlEmail.headers } }
     )
   } catch (e: any) {

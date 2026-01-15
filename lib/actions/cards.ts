@@ -1,46 +1,50 @@
 'use server'
 
-import { createClient } from '@/lib/supabase'
 import { creditCardSchema, type CreditCardInput } from '@/lib/validations'
 import { sanitizeCardLast4, validateAmount, createAuditLog } from '@/lib/security'
+import { prisma } from '@/lib/prisma'
+
+async function requireUserId(): Promise<string> {
+  const { getServerSession } = await import('next-auth/next')
+  const { authOptions } = await import('@/lib/auth')
+  const session = await getServerSession(authOptions)
+  const userId = String((session as any)?.user?.id || '').trim()
+  if (!userId) throw new Error('Unauthorized')
+  return userId
+}
+
+function toNum(v: any): number | null {
+  if (v == null) return null
+  const n = typeof v === 'number' ? v : Number(v)
+  return Number.isFinite(n) ? n : null
+}
 
 export async function getCreditCards() {
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { error: 'Unauthorized', cards: [] }
-    }
-
-    const { data, error } = await supabase
-      .from('credit_cards')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      return { error: error.message, cards: [] }
-    }
-
-    return { cards: data || [], error: null }
+    const userId = await requireUserId()
+    const rows = await prisma.creditCard.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, last4: true, name: true, apr: true, limit: true, balance: true },
+    })
+    const cards = rows.map((r) => ({
+      id: r.id,
+      last4: r.last4,
+      name: r.name,
+      apr: toNum(r.apr),
+      limit: toNum(r.limit) || 0,
+      balance: toNum(r.balance) || 0,
+    }))
+    return { cards, error: null }
   } catch (error: any) {
-    return { error: error.message || 'Failed to fetch cards', cards: [] }
+    const msg = String(error?.message || '')
+    return { error: msg.includes('Unauthorized') ? 'Unauthorized' : msg || 'Failed to fetch cards', cards: [] }
   }
 }
 
 export async function createCreditCard(data: CreditCardInput) {
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { error: 'Unauthorized', card: null }
-    }
+    const userId = await requireUserId()
 
     // Validate input
     const validationResult = creditCardSchema.safeParse({
@@ -68,33 +72,31 @@ export async function createCreditCard(data: CreditCardInput) {
 
     // Create audit log
     const auditLog = createAuditLog(
-      user.id,
+      userId,
       'CREATE_CREDIT_CARD',
       'credit_cards',
       { cardName: name, last4 }
     )
 
-    const { data: card, error } = await supabase
-      .from('credit_cards')
-      .insert({
-        user_id: user.id,
-        last4,
-        name,
-        apr: apr ?? null,
-        limit,
-        balance,
-      })
-      .select()
-      .single()
-
-    if (error) {
-      return { error: error.message, card: null }
-    }
+    const card = await prisma.creditCard.create({
+      data: { userId, last4, name, apr: apr ?? null, limit, balance } as any,
+      select: { id: true, last4: true, name: true, apr: true, limit: true, balance: true },
+    })
 
     // Log audit (optional)
     // await supabase.from('audit_logs').insert(auditLog)
 
-    return { card, error: null }
+    return {
+      card: {
+        id: card.id,
+        last4: card.last4,
+        name: card.name,
+        apr: toNum(card.apr),
+        limit: toNum(card.limit) || 0,
+        balance: toNum(card.balance) || 0,
+      },
+      error: null,
+    }
   } catch (error: any) {
     return { error: error.message || 'Failed to create card', card: null }
   }
@@ -102,44 +104,26 @@ export async function createCreditCard(data: CreditCardInput) {
 
 export async function deleteCreditCard(cardId: string) {
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { error: 'Unauthorized', success: false }
-    }
+    const userId = await requireUserId()
 
     // Verify card belongs to user
-    const { data: card } = await supabase
-      .from('credit_cards')
-      .select('id, name, last4')
-      .eq('id', cardId)
-      .eq('user_id', user.id)
-      .single()
-
-    if (!card) {
+    const card = await prisma.creditCard.findFirst({
+      where: { id: String(cardId || '').trim(), userId },
+      select: { id: true, name: true, last4: true },
+    })
+    if (!card?.id) {
       return { error: 'Card not found or unauthorized', success: false }
     }
 
     // Create audit log
     const auditLog = createAuditLog(
-      user.id,
+      userId,
       'DELETE_CREDIT_CARD',
       'credit_cards',
       { cardId, cardName: card.name, last4: card.last4 }
     )
 
-    const { error } = await supabase
-      .from('credit_cards')
-      .delete()
-      .eq('id', cardId)
-      .eq('user_id', user.id)
-
-    if (error) {
-      return { error: error.message, success: false }
-    }
+    await prisma.creditCard.delete({ where: { id: card.id } }).catch(() => null)
 
     // Log audit (optional)
     // await supabase.from('audit_logs').insert(auditLog)
@@ -155,14 +139,7 @@ export async function updateCreditCard(
   data: Partial<CreditCardInput>
 ) {
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { error: 'Unauthorized', card: null }
-    }
+    const userId = await requireUserId()
 
     // Build update object
     const updateData: any = {}
@@ -194,19 +171,26 @@ export async function updateCreditCard(
       }
     }
 
-    const { data: card, error } = await supabase
-      .from('credit_cards')
-      .update(updateData)
-      .eq('id', cardId)
-      .eq('user_id', user.id)
-      .select()
-      .single()
+    const existing = await prisma.creditCard.findFirst({ where: { id: String(cardId || '').trim(), userId }, select: { id: true } })
+    if (!existing?.id) return { error: 'Card not found or unauthorized', card: null }
 
-    if (error) {
-      return { error: error.message, card: null }
+    const card = await prisma.creditCard.update({
+      where: { id: existing.id },
+      data: updateData,
+      select: { id: true, last4: true, name: true, apr: true, limit: true, balance: true },
+    })
+
+    return {
+      card: {
+        id: card.id,
+        last4: card.last4,
+        name: card.name,
+        apr: toNum(card.apr),
+        limit: toNum(card.limit) || 0,
+        balance: toNum(card.balance) || 0,
+      },
+      error: null,
     }
-
-    return { card, error: null }
   } catch (error: any) {
     return { error: error.message || 'Failed to update card', card: null }
   }
