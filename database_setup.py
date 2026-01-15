@@ -103,7 +103,7 @@ def test_connection() -> None:
         engine = create_db_engine()
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        print("✅ Database connection OK (SELECT 1 succeeded).")
+        print("Connection Successful")
     except SQLAlchemyError as e:
         print("❌ Database connection failed.")
         print(f"SQLAlchemy error: {e.__class__.__name__}: {e}")
