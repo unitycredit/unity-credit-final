@@ -8,10 +8,17 @@ declare global {
 }
 
 function resolveDatabaseUrl() {
-  // App Runner / various AWS setups commonly use POSTGRES_URL.
-  // We accept both POSTGRES_URL and DATABASE_URL.
-  const direct = String(process.env.POSTGRES_URL || process.env.DATABASE_URL || '').trim()
+  // Canonical env var used by Prisma / most platforms.
+  const direct = String(process.env.DATABASE_URL || '').trim()
   if (direct) return direct
+
+  // App Runner / various AWS setups sometimes use POSTGRES_URL.
+  // For compatibility, if POSTGRES_URL is provided, map it into DATABASE_URL.
+  const postgresUrl = String(process.env.POSTGRES_URL || '').trim()
+  if (postgresUrl) {
+    process.env.DATABASE_URL = postgresUrl
+    return postgresUrl
+  }
 
   const host = String(process.env.DB_HOST || '').trim()
   const port = String(process.env.DB_PORT || '5432').trim()
@@ -57,7 +64,7 @@ function createPrismaClient() {
   const connectionString = resolveDatabaseUrl()
   if (!connectionString) {
     // Fail loudly: almost every server request needs DB in production.
-    throw new Error('Missing POSTGRES_URL/DATABASE_URL (or DB_HOST/DB_PASSWORD) required for Prisma/Postgres.')
+    throw new Error('Missing DATABASE_URL (or POSTGRES_URL, or DB_HOST/DB_PASSWORD) required for Prisma/Postgres.')
   }
   const pool = new Pool({
     connectionString,

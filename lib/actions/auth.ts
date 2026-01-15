@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/prisma'
 import { verifyPassword } from '@/lib/auth'
+import { callCognitoBoto3 } from '@/lib/aws/cognito-boto3'
 
 const toYiddishError = (msg: string) => {
   const text = msg || ''
