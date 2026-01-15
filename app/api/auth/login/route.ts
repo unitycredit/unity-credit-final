@@ -41,11 +41,13 @@ export async function POST(request: NextRequest) {
     }
 
     const hasDbEnv = Boolean(
-      String(process.env.DATABASE_URL || '').trim() || (String(process.env.DB_HOST || '').trim() && String(process.env.DB_PASSWORD || '').trim())
+      String(process.env.POSTGRES_URL || process.env.DATABASE_URL || '').trim() ||
+        (String(process.env.DB_HOST || '').trim() && String(process.env.DB_PASSWORD || '').trim())
     )
     if (!hasDbEnv) {
       // eslint-disable-next-line no-console
       console.error('[AUTH_LOGIN_API] DB_NOT_CONFIGURED', {
+        hasPostgresUrl: Boolean(String(process.env.POSTGRES_URL || '').trim()),
         hasDatabaseUrl: Boolean(String(process.env.DATABASE_URL || '').trim()),
         hasDbHost: Boolean(String(process.env.DB_HOST || '').trim()),
         hasDbPassword: Boolean(String(process.env.DB_PASSWORD || '').trim()),

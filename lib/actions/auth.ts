@@ -52,7 +52,8 @@ export async function signInAction(data: LoginInput) {
     const password = String(validation.data.password || '')
 
     const hasDbEnv = Boolean(
-      String(process.env.DATABASE_URL || '').trim() || (String(process.env.DB_HOST || '').trim() && String(process.env.DB_PASSWORD || '').trim())
+      String(process.env.POSTGRES_URL || process.env.DATABASE_URL || '').trim() ||
+        (String(process.env.DB_HOST || '').trim() && String(process.env.DB_PASSWORD || '').trim())
     )
     if (!hasDbEnv) return { error: 'סערוויר קאנפיגוראַציע טעות: דאַטאַבייס (RDS) איז נישט קאנפיגורירט. ביטע קאנטאקט סופּפּאָרט.' }
 

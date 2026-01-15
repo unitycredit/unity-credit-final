@@ -75,7 +75,8 @@ export const authOptions: NextAuthOptions = {
         if (isEmail) {
           const email = identifier
           const hasDbEnv = Boolean(
-            String(process.env.DATABASE_URL || '').trim() || (String(process.env.DB_HOST || '').trim() && String(process.env.DB_PASSWORD || '').trim())
+            String(process.env.POSTGRES_URL || process.env.DATABASE_URL || '').trim() ||
+              (String(process.env.DB_HOST || '').trim() && String(process.env.DB_PASSWORD || '').trim())
           )
           if (authDebug) {
             // eslint-disable-next-line no-console
