@@ -83,3 +83,11 @@ PREMIUM_PRICE_CENTS=4900
 PREMIUM_CURRENCY=usd
 
 
+# --- AWS RDS Postgres (for database_setup.py) ---
+# NOTE: Put real secrets in your local `.env` / `.env.local` only.
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@unity-credit-db.cluster-c3yemoqwimik.us-east-2.rds.amazonaws.com:5432/postgres
+DB_HOST=unity-credit-db.cluster-c3yemoqwimik.us-east-2.rds.amazonaws.com
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=YOUR_PASSWORD
+DB_NAME=postgres
