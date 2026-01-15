@@ -7,7 +7,7 @@ import { enforceRateLimitKeyed } from '@/lib/server-rate-limit'
 import { createHash } from 'node:crypto'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/prisma'
-import { callCognitoBoto3 } from '@/lib/aws/cognito-boto3'
+import { verifyPassword } from '@/lib/auth'
 
 const toYiddishError = (msg: string) => {
   const text = msg || ''
@@ -48,45 +48,30 @@ export async function signInAction(data: LoginInput) {
       // fail open (auth availability > perfect limiting)
     }
 
-    // NOTE:
-    // Server Actions cannot easily establish a NextAuth browser session (it requires the NextAuth callback flow + CSRF).
-    // This action therefore only validates credentials against AWS Cognito.
     const emailNorm = String(validation.data.email || '').trim().toLowerCase()
-    const resp = await callCognitoBoto3<{ claims?: any }>('initiate_auth', {
-      email: emailNorm,
-      password: String(validation.data.password || ''),
-    })
-    if (!resp.ok) return { error: toYiddishError(String((resp as any)?.error_code || (resp as any)?.error || '')) }
+    const password = String(validation.data.password || '')
 
-    const claims = (resp as any)?.claims || {}
-    const emailVerified = Boolean(claims?.email_verified)
-    if (process.env.NODE_ENV === 'production' && !emailVerified) return { error: 'אייער אימעיל איז נאך נישט באַשטעטיגט. ביטע וועריפיצירט.' }
+    const hasDbEnv = Boolean(
+      String(process.env.DATABASE_URL || '').trim() || (String(process.env.DB_HOST || '').trim() && String(process.env.DB_PASSWORD || '').trim())
+    )
+    if (!hasDbEnv) return { error: 'סערוויר קאנפיגוראַציע טעות: דאַטאַבייס (RDS) איז נישט קאנפיגורירט. ביטע קאנטאקט סופּפּאָרט.' }
 
-    // Ensure an RDS user row exists (used for app data ownership).
-    let user =
+    const user =
       (await prisma.user
-        .findUnique({ where: { email: emailNorm }, select: { id: true, email: true, firstName: true, lastName: true, emailVerifiedAt: true } })
+        .findUnique({
+          where: { email: emailNorm },
+          select: { id: true, email: true, passwordHash: true, emailVerifiedAt: true },
+        })
         .catch(() => null)) || null
-    if (!user?.id) {
-      user =
-        (await prisma.user
-          .create({
-            data: {
-              email: emailNorm,
-              ...(claims?.given_name ? { firstName: String(claims.given_name).trim() } : {}),
-              ...(claims?.family_name ? { lastName: String(claims.family_name).trim() } : {}),
-              ...(emailVerified ? { emailVerifiedAt: new Date() } : {}),
-            } as any,
-            select: { id: true, email: true, firstName: true, lastName: true, emailVerifiedAt: true },
-          })
-          .catch(() => null)) || null
-    } else if (emailVerified && !user.emailVerifiedAt) {
-      user =
-        (await prisma.user
-          .update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() }, select: { id: true, email: true, firstName: true, lastName: true, emailVerifiedAt: true } })
-          .catch(() => null)) || user
-    }
-    if (!user?.id) return { error: 'א טעות איז פארגעקומען. פרובירט נאכאמאל אדער קאנטאקט סופּפּאָרט.' }
+
+    if (!user?.id || !user.passwordHash) return { error: 'אומגילטיגע אימעיל אדער פאסווארט. פרובירט נאכאמאל.' }
+
+    const requireVerified =
+      process.env.NODE_ENV === 'production' && String(process.env.UC_REQUIRE_EMAIL_VERIFICATION || '').trim() !== 'false'
+    if (requireVerified && !user.emailVerifiedAt) return { error: 'אייער אימעיל איז נאך נישט באַשטעטיגט. ביטע וועריפיצירט.' }
+
+    const ok = await verifyPassword(password, user.passwordHash)
+    if (!ok) return { error: 'אומגילטיגע אימעיל אדער פאסווארט. פרובירט נאכאמאל.' }
 
     createAuditLog(user.id, 'USER_LOGIN', 'auth', { email: user.email })
     return { success: true, user: { id: user.id, email: user.email } as any, nextAuthRequired: true }

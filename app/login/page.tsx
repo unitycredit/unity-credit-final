@@ -182,14 +182,8 @@ export default function LoginPage() {
       } else if (rawErr.includes('DB_NOT_CONFIGURED')) {
         errorMessage = 'סערוויר קאנפיגוראַציע טעות: דאַטאַבייס (RDS) איז נישט קאנפיגורירט. ביטע קאנטאקט סופּפּאָרט.'
         setLoginError(errorMessage)
-      } else if (rawErr.includes('COGNITO_MISSING_AWS_CREDS')) {
-        errorMessage = 'סערוויר קאנפיגוראַציע טעות: פעלנדיגע AWS קרעדענשאַלס פאר Cognito. ביטע קאנטאקט סופּפּאָרט.'
-        setLoginError(errorMessage)
-      } else if (rawErr.includes('COGNITO_HELPER_FAILED')) {
-        errorMessage = 'סערוויר טעות: Cognito סערוויס איז נישט אוועקגעלייגט ריכטיג. ביטע פרובירט נאכאמאל.'
-        setLoginError(errorMessage)
-      } else if (rawErr.includes('COGNITO_') || rawErr.includes('COGNITO_AUTH_FAILED')) {
-        errorMessage = 'Cognito טעות. ביטע פרובירט נאכאמאל אדער קאנטאקט סופּפּאָרט.'
+      } else if (rawErr.includes('CredentialsSignin')) {
+        // NextAuth generic invalid-credentials marker.
         setLoginError(errorMessage)
       } else {
         setLoginError(errorMessage)

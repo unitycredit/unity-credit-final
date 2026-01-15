@@ -3,7 +3,6 @@ import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { pbkdf2Sync, timingSafeEqual } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
-import { callCognitoBoto3 } from '@/lib/aws/cognito-boto3'
 
 function normEmail(email: unknown) {
   return String(email || '').trim().toLowerCase()
@@ -72,7 +71,7 @@ export const authOptions: NextAuthOptions = {
         const isEmail = identifier.includes('@')
         const authDebug = process.env.NODE_ENV !== 'production' || String(process.env.UC_AUTH_DEBUG || '').trim() === 'true'
 
-        // 1) Primary: Cognito User Pool auth (email/password). We keep a local user row in RDS for app data ownership.
+        // 1) Primary: RDS Postgres users table (email/password). (No Cognito.)
         if (isEmail) {
           const email = identifier
           const hasDbEnv = Boolean(
@@ -87,122 +86,56 @@ export const authOptions: NextAuthOptions = {
             })
           }
 
-          const cog = await callCognitoBoto3<{ claims?: any }>('initiate_auth', { email, password })
-          if (!cog.ok) {
-            const code = String((cog as any)?.error_code || '')
-            if (authDebug) {
-              // eslint-disable-next-line no-console
-              console.error('[AUTH] Cognito auth failed', {
-                email,
-                error_code: code || null,
-                status: (cog as any)?.status || null,
-                error: String((cog as any)?.error || '').slice(0, 200) || null,
-              })
-            }
-            if (code === 'UserNotConfirmedException') {
-              throw new Error('EMAIL_NOT_VERIFIED')
-            }
-            if (code === 'NotAuthorizedException') return null
-            if (code === 'MissingAWSCredentials') {
-              throw new Error('COGNITO_MISSING_AWS_CREDS')
-            }
-            if (code === 'cognito_boto3_failed') {
-              throw new Error('COGNITO_HELPER_FAILED')
-            }
-            // Fail closed (do not leak internal errors as "invalid password").
-            throw new Error(code ? `COGNITO_${code}` : 'COGNITO_AUTH_FAILED')
-          }
-
-          const claims = (cog as any)?.claims || {}
-          const emailVerified = Boolean(claims?.email_verified)
-
-          // Production gate: require Cognito email verification before allowing sign-in.
-          if (process.env.NODE_ENV === 'production' && !emailVerified) {
-            throw new Error('EMAIL_NOT_VERIFIED')
-          }
-
-          const firstName = String(claims?.given_name || '').trim() || null
-          const lastName = String(claims?.family_name || '').trim() || null
-          const phone = String(claims?.phone_number || '').trim() || null
-
-          // Ensure user row exists in RDS (used as the internal user id across the app).
           if (!hasDbEnv) {
             if (authDebug) {
               // eslint-disable-next-line no-console
-              console.error('[AUTH] Missing DB env; refusing login because Unity Credit requires RDS user row', { email })
+              console.error('[AUTH] Missing DB env; refusing login because Unity Credit requires RDS', { email })
             }
             throw new Error('DB_NOT_CONFIGURED')
           }
 
-          let dbUser: any = null
           try {
-            dbUser =
+            const dbUser =
               (await prisma.user
                 .findUnique({
                   where: { email },
-                  select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
+                  select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    passwordHash: true,
+                    emailVerifiedAt: true,
+                  },
                 })
                 .catch(() => null)) || null
 
-            if (!dbUser?.id) {
-              dbUser =
-                (await prisma.user
-                  .create({
-                    data: {
-                      email,
-                      ...(firstName ? { firstName } : {}),
-                      ...(lastName ? { lastName } : {}),
-                      ...(phone ? { phone } : {}),
-                      ...(emailVerified ? { emailVerifiedAt: new Date() } : {}),
-                    } as any,
-                    select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
-                  })
-                  .catch(() => null)) || null
-            } else {
-              // Best-effort: keep profile fields fresh (only fill missing values).
-              const needsUpdate =
-                (emailVerified && !dbUser.emailVerifiedAt) ||
-                (!dbUser.firstName && firstName) ||
-                (!dbUser.lastName && lastName) ||
-                (!dbUser.phone && phone)
-              if (needsUpdate) {
-                dbUser =
-                  (await prisma.user
-                    .update({
-                      where: { id: dbUser.id },
-                      data: {
-                        ...(emailVerified && !dbUser.emailVerifiedAt ? { emailVerifiedAt: new Date() } : {}),
-                        ...(!dbUser.firstName && firstName ? { firstName } : {}),
-                        ...(!dbUser.lastName && lastName ? { lastName } : {}),
-                        ...(!dbUser.phone && phone ? { phone } : {}),
-                      } as any,
-                      select: { id: true, email: true, firstName: true, lastName: true, phone: true, emailVerifiedAt: true },
-                    })
-                    .catch(() => null)) || dbUser
-              }
+            if (!dbUser?.id || !dbUser.passwordHash) return null
+
+            const requireVerified =
+              process.env.NODE_ENV === 'production' && String(process.env.UC_REQUIRE_EMAIL_VERIFICATION || '').trim() !== 'false'
+            if (requireVerified && !dbUser.emailVerifiedAt) {
+              throw new Error('EMAIL_NOT_VERIFIED')
             }
-          } catch {
-            // Surface DB connectivity separately so the UI can show the right message.
+
+            const ok = await verifyPassword(password, dbUser.passwordHash)
+            if (!ok) return null
+
+            return {
+              id: dbUser.id,
+              email: dbUser.email || email,
+              name: [dbUser.firstName, dbUser.lastName].filter(Boolean).join(' ').trim() || undefined,
+            }
+          } catch (e: any) {
+            const msg = String(e?.message || '')
             if (authDebug) {
               // eslint-disable-next-line no-console
-              console.error('[AUTH] RDS/Prisma operation failed (exception)', { email })
+              console.error('[AUTH] RDS credential auth failed', { email, error: msg.slice(0, 200) || null })
+            }
+            if (msg.includes('Missing DATABASE_URL') || msg.includes('DB_HOST') || msg.includes('Prisma')) {
+              throw new Error('DB_NOT_CONFIGURED')
             }
             throw new Error('DB_CONNECT_FAILED')
-          }
-
-          if (!dbUser?.id) {
-            // If Cognito auth succeeded but DB row couldn't be created, treat as DB issue (not invalid credentials).
-            if (authDebug) {
-              // eslint-disable-next-line no-console
-              console.error('[AUTH] RDS user row missing after Cognito auth', { email })
-            }
-            throw new Error('DB_CONNECT_FAILED')
-          }
-
-          return {
-            id: dbUser.id,
-            email: dbUser.email || email,
-            name: [dbUser.firstName, dbUser.lastName].filter(Boolean).join(' ').trim() || undefined,
           }
         }
 
