@@ -143,7 +143,12 @@ export default function SignupPage() {
         router.push('/dashboard')
         router.refresh()
       } else {
-      router.push(`/verify-email?email=${encodeURIComponent(String(data.email || '').trim())}`)
+        // If the user already verified email via OTP on this page, don't force a second verification step.
+        if (emailVerified) {
+          router.push(`/login?email=${encodeURIComponent(String(data.email || '').trim())}&verified=1`)
+        } else {
+          router.push(`/verify-email?email=${encodeURIComponent(String(data.email || '').trim())}`)
+        }
       }
     }
   }

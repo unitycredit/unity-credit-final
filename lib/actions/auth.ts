@@ -73,140 +73,44 @@ export async function signUpAction(data: SignupInput) {
     if (!validation.success) {
       return { error: 'אומגילטיגע דאטן', details: validation.error.errors }
     }
-    const referredBy = (validation.data as any).referralCode ? String((validation.data as any).referralCode).trim() : ''
-    const isDev = process.env.NODE_ENV !== 'production'
 
-    const cfg = getSupabaseRuntimeConfig()
-    if (!cfg.serviceRoleKey) {
-      // Dev fallback: allow signup flow to proceed to OTP verification even when service-role is missing.
-      // OTP routes will store/verify locally in dev.
-      if (process.env.NODE_ENV !== 'production') {
-        try {
-          const h = await headers()
-          const host = h.get('x-forwarded-host') || h.get('host') || 'localhost:3002'
-          const proto = h.get('x-forwarded-proto') || 'http'
-          const base = `${proto}://${host}`
-          await fetch(`${base}/api/auth/otp/send`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: validation.data.email,
-              purpose: 'signup',
-              user_id: null,
-            }),
-            cache: 'no-store',
-          })
-        } catch {
-          // ignore
-        }
-        return {
-          success: true,
-          demo: true,
-          user: { id: 'dev-demo', email: validation.data.email, email_confirmed_at: null } as any,
-          needsVerification: true,
-        }
-      }
-      return {
-        error:
-          'סיסטעם קאנפיגוראציע פעלט (SUPABASE_SERVICE_ROLE_KEY). לייגט עס אריין אין .env.local אדער (טעמפארער) אין DOTENV_LOCAL_TEMPLATE.txt און ריסטאַרט npm run dev.',
-      }
+    // AWS RDS signup:
+    // - Creates or upgrades a user row in Postgres (`users` table via Prisma).
+    // - Password is stored as bcrypt hash in `password_hash`.
+    // - Email verification is handled via OTP routes (also stored in Postgres).
+    const email = String(validation.data.email || '').trim().toLowerCase()
+    const firstName = String(validation.data.firstName || '').trim()
+    const lastName = String(validation.data.lastName || '').trim()
+    const phone = String(validation.data.phone || '').trim()
+
+    // Hash password (bcrypt) - supported by `verifyPassword()` in `lib/auth.ts`.
+    const bcrypt = (await import('bcryptjs')).default
+    const passwordHash = await bcrypt.hash(String(validation.data.password || ''), 12)
+
+    let user = await prisma.user
+      .findUnique({ where: { email }, select: { id: true, email: true, passwordHash: true, emailVerifiedAt: true } })
+      .catch(() => null)
+
+    if (user?.passwordHash) {
+      return { error: 'דער אימעיל איז שוין רעגיסטרירט. ביטע נוצט לאגין.' }
     }
 
-    // Enterprise: create user via service-role so Supabase does NOT send its own verification emails.
-    // We handle OTP exclusively via Resend.
-    const admin = createServerClient()
-    let authData: any = null
-    let error: any = null
-
-    const createAttempt = await admin.auth.admin
-      .createUser({
-        email: validation.data.email,
-        password: validation.data.password,
-        email_confirm: false,
-        user_metadata: {
-          first_name: validation.data.firstName,
-          last_name: validation.data.lastName,
-          phone: validation.data.phone,
-          ...(referredBy ? { referred_by: referredBy } : {}),
-        },
-      } as any)
-      .catch((e: any) => ({ data: null, error: { message: e?.message || 'create failed' } }))
-
-    authData = (createAttempt as any)?.data || null
-    error = (createAttempt as any)?.error || null
-
-    // If the email was pre-registered via OTP (placeholder user), upgrade it instead of failing.
-    if (error && String(error.message || '').includes('User already registered')) {
-      try {
-        const lookup = await admin
-          .from('users')
-          .select('id')
-          .ilike('email', String(validation.data.email || '').trim().toLowerCase())
-          .maybeSingle()
-        const existingId = (lookup as any)?.data?.id || null
-        if (existingId) {
-          const upd = await admin.auth.admin.updateUserById(existingId, {
-            password: validation.data.password,
-            user_metadata: {
-              first_name: validation.data.firstName,
-              last_name: validation.data.lastName,
-              phone: validation.data.phone,
-              ...(referredBy ? { referred_by: referredBy } : {}),
-            },
-          } as any)
-          authData = (upd as any)?.data || null
-          error = (upd as any)?.error || null
-        }
-      } catch {
-        // keep original error
-      }
+    if (!user?.id) {
+      user = await prisma.user.create({
+        data: { email, firstName, lastName, phone, passwordHash },
+        select: { id: true, email: true, passwordHash: true, emailVerifiedAt: true },
+      })
+    } else {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { firstName, lastName, phone, passwordHash },
+        select: { id: true, email: true, passwordHash: true, emailVerifiedAt: true },
+      })
     }
 
-    if (error) return { error: toYiddishError(error.message) }
+    createAuditLog(user.id, 'USER_SIGNUP', 'auth', { email })
 
-    if (authData.user) {
-      // Ensure profile row exists using service role.
-      if (cfg.serviceRoleKey) {
-        try {
-          const supabaseAdmin = createServerClient()
-          await supabaseAdmin.from('users').upsert({
-            id: authData.user.id,
-            email: String(validation.data.email || '').trim().toLowerCase(),
-            first_name: validation.data.firstName,
-            last_name: validation.data.lastName,
-            phone: validation.data.phone,
-            ...(referredBy ? { referred_by: referredBy } : {}),
-          })
-        } catch {
-          // Intentionally ignore: auth signup already succeeded
-        }
-      }
-      createAuditLog(authData.user.id, 'USER_SIGNUP', 'auth', { email: validation.data.email })
-    }
-
-    // Dev convenience: auto-confirm + auto-login immediately after signup.
-    // This establishes an auth session cookie so the user can enter /dashboard without a manual login step.
-    // In production, keep the OTP verification flow (do not auto-confirm).
-    let autoLogin = false
-    if (isDev && authData.user?.id) {
-      try {
-        await admin.auth.admin.updateUserById(authData.user.id, { email_confirm: true } as any)
-      } catch {
-        // ignore
-      }
-      try {
-        const supabase = await createClient()
-        const { error: signInErr } = await supabase.auth.signInWithPassword({
-          email: validation.data.email,
-          password: validation.data.password,
-        })
-        autoLogin = !signInErr
-      } catch {
-        autoLogin = false
-      }
-    }
-
-    // Trigger OTP immediately (server-side, highest reliability).
+    // Trigger OTP immediately (server-side, best-effort) so users get the email even if they forget to click.
     try {
       const h = await headers()
       const host = h.get('x-forwarded-host') || h.get('host') || 'localhost:3000'
@@ -215,22 +119,18 @@ export async function signUpAction(data: SignupInput) {
       await fetch(`${base}/api/auth/otp/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: validation.data.email,
-          purpose: 'signup',
-          user_id: authData.user?.id || null,
-        }),
+        body: JSON.stringify({ email, purpose: 'signup' }),
         cache: 'no-store',
       })
     } catch {
-      // ignore (user can click resend on /verify-email)
+      // ignore
     }
 
     return {
       success: true,
-      user: authData.user,
-      needsVerification: isDev && autoLogin ? false : !authData.user?.email_confirmed_at,
-      autoLogin,
+      user: { id: user.id, email: user.email } as any,
+      needsVerification: !user.emailVerifiedAt,
+      autoLogin: false,
     }
   } catch (error: any) {
     return { error: toYiddishError(error?.message) }
@@ -251,23 +151,28 @@ export async function signOutAction() {
 
 export async function getCurrentUser() {
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser()
+    // Prefer NextAuth session (JWT strategy).
+    const { getServerSession } = await import('next-auth/next')
+    const { authOptions } = await import('@/lib/auth')
+    const session = await getServerSession(authOptions)
+    const userId = String((session as any)?.user?.id || '').trim()
+    if (!userId) return { user: null }
 
-    if (error || !user) {
-      return { user: null }
+    const dbUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, firstName: true, lastName: true, phone: true },
+    })
+    if (!dbUser?.id) return { user: null }
+
+    // Keep shape compatible with existing settings UI expectations.
+    return {
+      user: {
+        id: dbUser.id,
+        email: dbUser.email,
+        user_metadata: { first_name: dbUser.firstName || '', last_name: dbUser.lastName || '', phone: dbUser.phone || '' },
+        profile: { first_name: dbUser.firstName || '', last_name: dbUser.lastName || '', phone: dbUser.phone || '' },
+      } as any,
     }
-
-    const { data: profile } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    return { user: { ...user, profile } }
   } catch (error: any) {
     return { user: null, error: toYiddishError(error?.message) }
   }
