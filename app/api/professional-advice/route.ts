@@ -5,6 +5,7 @@ import { sanitizeInput, createAuditLog } from '@/lib/security'
 import { sanitizeUnityLogicPublicText } from '@/lib/sanitize'
 import { creditCardRowSchema } from '@/lib/finance/types'
 import { callUnityBrainOffice } from '@/lib/unity-brain-office'
+import { maybeGreetingMatch } from '@/lib/greetings'
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,6 +30,16 @@ export async function POST(request: NextRequest) {
     }
 
     const sanitizedQuestion = sanitizeInput(validationResult.data.question)
+
+    // Fast-path: pure greeting (avoid calling Brain for "א גוטן", "hello", etc.).
+    const greeting = maybeGreetingMatch(sanitizedQuestion)
+    if (greeting) {
+      createAuditLog(user.id, 'PRO_ADVICE_GREETING', 'professional_advice', {
+        questionLength: sanitizedQuestion.length,
+        lang: greeting.lang,
+      })
+      return NextResponse.json({ response: greeting.response })
+    }
 
     // Context from user's credit cards (optional)
     const { data: cards } = await supabase
