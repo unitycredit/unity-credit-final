@@ -94,7 +94,6 @@ function deepSanitizeInternal(value: any, opts: DeepSanitizeOptions, depth: numb
     }
 
     // Buffers / typed arrays (avoid huge dumps).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyVal = value as any
     if (typeof Buffer !== 'undefined' && Buffer.isBuffer(anyVal)) return `[buffer:${anyVal.length}]`
     if (anyVal instanceof Uint8Array) return `[uint8array:${anyVal.byteLength}]`

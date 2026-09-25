@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "node scripts/ensure-env-local.js && node scripts/ensure-next-cache.js .next-dev && node scripts/dev-next.js",
     "reset:dev": "node scripts/reset-dev.js",
+    "postinstall": "prisma generate",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -60,12 +61,14 @@
   },
   "devDependencies": {
     "@babel/parser": "^7.28.5",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^20.19.27",
     "@types/pg": "^8.16.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.16",
+    "cors": "^2.8.6",
     "eslint": "^8.56.0",
     "eslint-config-next": "^15.0.0",
     "postcss": "^8.4.32",
